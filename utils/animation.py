@@ -130,9 +130,19 @@ def animate(t, x, y, z, phi, theta, psi, u, autopilot_mode=[], target=[], waypoi
         # text
         cv2.putText(frame, "t = " + str(round(t_[time_index], 2)), (10, 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0))
+        help_lines = [
+            "SPACE=play/pause   ESC=exit   R=record",
+            "P=toggle path   F=follow   S=forces",
+            "1=zoom out   2=zoom in",
+        ]
         if multiple_trajectories:
-            cv2.putText(frame, "i = " + str(traj_index), (100, 20),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0))
+            help_lines.append("J=prev traj   L=next traj")
+        for idx, text in enumerate(help_lines, start=1):
+            cv2.putText(frame, text, (10, 20 + 20 * idx),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0,0,0))
+        if multiple_trajectories:
+            cv2.putText(frame, "i = " + str(traj_index), (10, 20 + 20 * (len(help_lines) + 1)),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0,0,0))
 
         # drawing
         big_grid.draw(frame, cam, color=(200, 200, 200), pt=1)
@@ -262,6 +272,9 @@ def animate(t, x, y, z, phi, theta, psi, u, autopilot_mode=[], target=[], waypoi
             break
         
         cv2.imshow('animation', frame)
+
+        if cv2.getWindowProperty('animation', cv2.WND_PROP_VISIBLE) < 1:
+            break
     
     if out is not None:
         out.release()
