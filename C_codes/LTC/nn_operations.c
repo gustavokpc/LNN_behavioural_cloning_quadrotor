@@ -5,34 +5,23 @@
 #define LTC_EPS 1.0e-8f
 #define LTC_UNFOLDS 6
 
-static float nn_hidden[HIDDEN_SIZE];
-static float nn_cell[HIDDEN_SIZE];
 static float nn_ltc_state[HIDDEN_SIZE];
-static float nn_ncp_state[60];
 
-static float sigmoidf_local(float x) { return 1.0f / (1.0f + expf(-x)); }
-static float reluf_local(float x) { return x > 0.0f ? x : 0.0f; }
-static float lecun_tanhf(float x) { return 1.7159f * tanhf(0.666f * x); }
-static float softplusf_local(float x) { return x > 20.0f ? x : log1pf(expf(x)); }
+static inline float sigmoidf_local(float x) { return 1.0f / (1.0f + expf(-x)); }
+static inline float reluf_local(float x) { return x > 0.0f ? x : 0.0f; }
+static inline float softplusf_local(float x) { return x > 20.0f ? x : log1pf(expf(x)); }
 
-static void clamp_output(float *y) {
+static void clamp_output(float * restrict y) {
     for (int i = 0; i < NUM_CONTROLS; ++i) {
         if (y[i] < 0.0f) y[i] = 0.0f;
         if (y[i] > 1.0f) y[i] = 1.0f;
     }
 }
 
-static void normalize(const float *x, float *y) {
+static void normalize(const float * restrict x, float * restrict y) {
     for (int i = 0; i < NUM_STATES; ++i) y[i] = (x[i] - input_norm_min[i]) / (input_norm_max[i] - input_norm_min[i] + 1.0e-10f);
 }
 
-static void matvec(const float *x, float *y, const float *w, const float *b, int in_dim, int out_dim) {
-    for (int o = 0; o < out_dim; ++o) {
-        float acc = b ? b[o] : 0.0f;
-        for (int i = 0; i < in_dim; ++i) acc += w[o * in_dim + i] * x[i];
-        y[o] = acc;
-    }
-}
 
 static void conv1d_relu(const float *x, float *y, const float *w, const float *b, int in_ch, int in_len, int out_ch, int out_len) {
     for (int oc = 0; oc < out_ch; ++oc) {

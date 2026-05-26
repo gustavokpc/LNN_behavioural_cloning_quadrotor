@@ -2,34 +2,27 @@
 #include "nn_operations.h"
 
 #define BN_EPS 1.0e-5f
-#define LTC_EPS 1.0e-8f
-#define LTC_UNFOLDS 6
-
-static float nn_hidden[HIDDEN_SIZE];
-static float nn_cell[HIDDEN_SIZE];
-static float nn_ltc_state[HIDDEN_SIZE];
 static float nn_ncp_state[60];
 
-static float sigmoidf_local(float x) { return 1.0f / (1.0f + expf(-x)); }
-static float reluf_local(float x) { return x > 0.0f ? x : 0.0f; }
-static float lecun_tanhf(float x) { return 1.7159f * tanhf(0.666f * x); }
-static float softplusf_local(float x) { return x > 20.0f ? x : log1pf(expf(x)); }
+static inline float sigmoidf_local(float x) { return 1.0f / (1.0f + expf(-x)); }
+static inline float reluf_local(float x) { return x > 0.0f ? x : 0.0f; }
 
-static void clamp_output(float *y) {
+static void clamp_output(float * restrict y) {
     for (int i = 0; i < NUM_CONTROLS; ++i) {
         if (y[i] < 0.0f) y[i] = 0.0f;
         if (y[i] > 1.0f) y[i] = 1.0f;
     }
 }
 
-static void normalize(const float *x, float *y) {
+static void normalize(const float * restrict x, float * restrict y) {
     for (int i = 0; i < NUM_STATES; ++i) y[i] = (x[i] - input_norm_min[i]) / (input_norm_max[i] - input_norm_min[i] + 1.0e-10f);
 }
 
-static void matvec(const float *x, float *y, const float *w, const float *b, int in_dim, int out_dim) {
+static void matvec(const float * restrict x, float * restrict y, const float * restrict w, const float * restrict b, int in_dim, int out_dim) {
     for (int o = 0; o < out_dim; ++o) {
-        float acc = b ? b[o] : 0.0f;
-        for (int i = 0; i < in_dim; ++i) acc += w[o * in_dim + i] * x[i];
+        const float *row = &w[o * in_dim];
+        float acc = b[o];
+        for (int i = 0; i < in_dim; ++i) acc += row[i] * x[i];
         y[o] = acc;
     }
 }
@@ -99,7 +92,9 @@ void nn_control(const float *state, float *control) {
     ncp_layer(feat,256,&nn_ncp_state[0],32,rnn_rnn_cell_layer_0_sparsity_mask,rnn_rnn_cell_layer_0_ff1_weight,rnn_rnn_cell_layer_0_ff1_bias,rnn_rnn_cell_layer_0_ff2_weight,rnn_rnn_cell_layer_0_ff2_bias,rnn_rnn_cell_layer_0_time_a_weight,rnn_rnn_cell_layer_0_time_a_bias,rnn_rnn_cell_layer_0_time_b_weight,rnn_rnn_cell_layer_0_time_b_bias,h0);
     ncp_layer(h0,32,&nn_ncp_state[32],24,rnn_rnn_cell_layer_1_sparsity_mask,rnn_rnn_cell_layer_1_ff1_weight,rnn_rnn_cell_layer_1_ff1_bias,rnn_rnn_cell_layer_1_ff2_weight,rnn_rnn_cell_layer_1_ff2_bias,rnn_rnn_cell_layer_1_time_a_weight,rnn_rnn_cell_layer_1_time_a_bias,rnn_rnn_cell_layer_1_time_b_weight,rnn_rnn_cell_layer_1_time_b_bias,h1);
     ncp_layer(h1,24,&nn_ncp_state[56],4,rnn_rnn_cell_layer_2_sparsity_mask,rnn_rnn_cell_layer_2_ff1_weight,rnn_rnn_cell_layer_2_ff1_bias,rnn_rnn_cell_layer_2_ff2_weight,rnn_rnn_cell_layer_2_ff2_bias,rnn_rnn_cell_layer_2_time_a_weight,rnn_rnn_cell_layer_2_time_a_bias,rnn_rnn_cell_layer_2_time_b_weight,rnn_rnn_cell_layer_2_time_b_bias,h2);
-    for (int i=0;i<32;++i) nn_ncp_state[i]=h0[i]; for (int i=0;i<24;++i) nn_ncp_state[32+i]=h1[i]; for (int i=0;i<4;++i) nn_ncp_state[56+i]=h2[i];
+    for (int i=0;i<32;++i) nn_ncp_state[i]=h0[i];
+    for (int i=0;i<24;++i) nn_ncp_state[32+i]=h1[i];
+    for (int i=0;i<4;++i) nn_ncp_state[56+i]=h2[i];
     matvec(h2, control, rnn_fc_weight, rnn_fc_bias, 4, NUM_CONTROLS);
     clamp_output(control);
 }

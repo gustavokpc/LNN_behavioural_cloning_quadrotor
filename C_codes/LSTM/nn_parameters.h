@@ -11,7 +11,6 @@ Input order: dx, dy, dz, vx, vy, vz, phi, theta, psi, p, q, r, Mx_ext, My_ext, M
 #define NUM_CONTROLS 4
 #define CONV_FEATURES 256
 #define HIDDEN_SIZE 64
-#define MLP_NODES 120
 
 
 extern const float input_norm_min[19];

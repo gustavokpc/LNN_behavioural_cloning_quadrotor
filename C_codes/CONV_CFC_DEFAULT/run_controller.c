@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include "nn_operations.h"
 int main(int argc, char **argv) {
-    if (argc != NUM_STATES + 1) { fprintf(stderr, "Expected 19 state values.\n"); return 1; }
+    if (argc != NUM_STATES + 1) { fprintf(stderr, "Expected %d state values.\n", NUM_STATES); return 1; }
     float state[NUM_STATES], control[NUM_CONTROLS];
     for (int i=0;i<NUM_STATES;++i) state[i]=strtof(argv[i+1], NULL);
     nn_reset();
