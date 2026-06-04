@@ -111,6 +111,7 @@ def main() -> None:
     psis = []
     us = []
     names = []
+    final_positions = []
 
     for traj_idx in range(args.trajectory, args.trajectory + args.trajectories):
         dt = float(dt_values[traj_idx])
@@ -133,6 +134,10 @@ def main() -> None:
         actions = generated_actions[:steps]
         t = np.arange(steps, dtype=np.float64) * dt
 
+        final_position = world_states[-1, 0:3]
+        final_positions.append(final_position)
+        _print_final_position_error(name=f"C_traj_{traj_idx}", final_position=final_position)
+
         times.append(t)
         xs.append(world_states[:, 0])
         ys.append(world_states[:, 1])
@@ -142,6 +147,8 @@ def main() -> None:
         psis.append(world_states[:, 8])
         us.append(actions)
         names.append(f"C_traj_{traj_idx}")
+
+    _print_final_z_summary(np.asarray(final_positions, dtype=np.float64))
 
     max_steps = max(arr.shape[0] for arr in xs)
 
@@ -201,6 +208,27 @@ def _prepare_initial_state(raw_traj_inputs: np.ndarray, input_labels: list[str])
     base_labels = [label for label in input_labels if label not in {"t", "dt"}]
     expanded_labels = expand_feature_labels(base_labels)
     return state_from_input_features(raw_traj_inputs[:, 0], expanded_labels)
+
+
+def _print_final_position_error(name: str, final_position: np.ndarray) -> None:
+    final_x, final_y, final_z = (float(value) for value in final_position)
+    final_distance = float(np.linalg.norm(final_position))
+    print(
+        f"[{name}] final_position=({final_x:+.3f}, {final_y:+.3f}, {final_z:+.3f}) m | "
+        f"distance_to_origin={final_distance:.3f} m"
+    )
+
+
+def _print_final_z_summary(final_positions: np.ndarray) -> None:
+    final_z = final_positions[:, 2]
+    mean_abs_z = float(np.mean(np.abs(final_z)))
+    mean_z = float(np.mean(final_z))
+    std_z = float(np.std(final_z))
+    print(
+        f"[summary] trajectories={len(final_z)} | "
+        f"mean_abs_final_z={mean_abs_z:.3f} m | "
+        f"mean_final_z={mean_z:+.3f} m | std_final_z={std_z:.3f} m"
+    )
 
 
 if __name__ == "__main__":

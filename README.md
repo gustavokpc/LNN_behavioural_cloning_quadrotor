@@ -116,6 +116,36 @@ C-exported controllers:
 .venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_race_drone_C.py
 ```
 
+Gazebo/Paparazzi square comparison with the CFC C export:
+
+```bash
+.venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_gazebo_square_C.py \
+  --time-simulation 60 --dist-error 0.1 --auto-play
+```
+
+This reads the Paparazzi square waypoints from `nn_waypoints_square.xml`, starts at the `STDBY` x/y position at `1.0 m`, and uses `NN_SQ_*` waypoints at `1.5 m`. To compare waypoint memory reset behavior:
+
+```bash
+.venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_gazebo_square_C.py \
+  --time-simulation 60 --dist-error 0.1 --auto-play --reset-each-waypoint
+```
+
+To test another exported model on the same square path, use `--model`:
+
+```bash
+.venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_gazebo_square_C.py \
+  --model GRU --time-simulation 60 --dist-error 0.1 --auto-play
+```
+
+Gazebo/Paparazzi figure-eight comparison reads `RL_F8_1..8` from `rl_cfc_waypoints_square.xml` and starts from the same `STDBY` point as the square simulation:
+
+```bash
+.venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_gazebo_figure8_C.py \
+  --time-simulation 60 --dist-error 0.1 --auto-play
+```
+
+The waypoint switching distance is controlled with `--dist-error` and defaults to `0.1 m` in both Gazebo/Paparazzi comparison scripts.
+
 The C-backed simulators automatically map `simulator_config.yaml -> model_path` to the matching folder in `C_codes`. To force a specific C export:
 
 ```bash
