@@ -19,10 +19,8 @@ from .config import dataset_dims, resolve_checkpoint
 from .data import get_norm_vectors
 from .model_builder import build_controller_network
 from .lightning import Lightning_Model
-from .normalization_limits import (
-    G, IXX, IYY, IZZ, KH, KOMEGA, KP, KPV, KQ, KQV, KR1, KR2, KRR, KX, KY, KZ,
-    MASS, OMEGA_MAX, OMEGA_MIN, TAU,
-)
+from .dynamics_models import dynamics as selected_dynamics
+from .dynamics_models import get_dynamics_info
 
 
 STATE_LABELS = [
@@ -76,59 +74,7 @@ def body_to_world_trajectory(states_body: np.ndarray) -> np.ndarray:
 
 def dynamics(state: np.ndarray, action: np.ndarray) -> np.ndarray:
     """Evaluate the continuous-time quadrotor dynamics for one state/action pair."""
-    (
-        dx, dy, dz, vx, vy, vz,
-        phi, theta, psi, p, q, r,
-        mx, my, mz, omega1, omega2, omega3, omega4,
-    ) = state
-    u1, u2, u3, u4 = action
-
-    d_dx = -q * dz + r * dy - vx
-    d_dy = p * dz - r * dx - vy
-    d_dz = -p * dy + q * dx - vz
-
-    omegas = omega1 + omega2 + omega3 + omega4
-    omegas2 = omega1**2 + omega2**2 + omega3**2 + omega4**2
-
-    d_vx = -q * vz + r * vy - G * np.sin(theta) - KX * omegas * vx
-    d_vy = p * vz - r * vx + G * np.cos(theta) * np.sin(phi) - KY * omegas * vy
-    d_vz = (
-        -p * vy + q * vx + G * np.cos(theta) * np.cos(phi)
-        - KZ * omegas * vz - KOMEGA * omegas2 - KH * (vx**2 + vy**2)
-    )
-
-    d_phi = p + q * np.sin(phi) * np.tan(theta) + r * np.cos(phi) * np.tan(theta)
-    d_theta = q * np.cos(phi) - r * np.sin(phi)
-    d_psi = q * np.sin(phi) / np.cos(theta) + r * np.cos(phi) / np.cos(theta)
-
-    d_omega1 = (OMEGA_MIN + u1 * (OMEGA_MAX - OMEGA_MIN) - omega1) / TAU
-    d_omega2 = (OMEGA_MIN + u2 * (OMEGA_MAX - OMEGA_MIN) - omega2) / TAU
-    d_omega3 = (OMEGA_MIN + u3 * (OMEGA_MAX - OMEGA_MIN) - omega3) / TAU
-    d_omega4 = (OMEGA_MIN + u4 * (OMEGA_MAX - OMEGA_MIN) - omega4) / TAU
-
-    tau_x = KP * (omega1**2 - omega2**2 - omega3**2 + omega4**2) + KPV * vy + mx
-    tau_y = KQ * (omega1**2 + omega2**2 - omega3**2 - omega4**2) + KQV * vx + my
-    tau_z = (
-        KR1 * (-omega1 + omega2 - omega3 + omega4)
-        + KR2 * (-d_omega1 + d_omega2 - d_omega3 + d_omega4)
-        - KRR * r + mz
-    )
-
-    d_p = (q * r * (IYY - IZZ) + tau_x) / IXX
-    d_q = (p * r * (IZZ - IXX) + tau_y) / IYY
-    d_r = (p * q * (IXX - IYY) + tau_z) / IZZ
-
-    return np.array(
-        [
-            d_dx, d_dy, d_dz,
-            d_vx, d_vy, d_vz,
-            d_phi, d_theta, d_psi,
-            d_p, d_q, d_r,
-            0.0, 0.0, 0.0,
-            d_omega1, d_omega2, d_omega3, d_omega4,
-        ],
-        dtype=np.float64,
-    )
+    return selected_dynamics(state, action)
 
 
 def integrate_state(method: str,
@@ -315,6 +261,7 @@ def rollout_controller(model,
 
 def generate_starting_conditions(n_conditions: int, seed: int = 42) -> np.ndarray:
     """Sample randomized but physically plausible landing start conditions."""
+    dynamics_info = get_dynamics_info()
     rng = np.random.default_rng(seed)
     starts = np.zeros((n_conditions, 19), dtype=np.float64)
     starts[:, 0:2] = rng.choice([-1, 1], size=(n_conditions, 2)) * rng.uniform(1.0, 5.0, size=(n_conditions, 2))
@@ -324,5 +271,5 @@ def generate_starting_conditions(n_conditions: int, seed: int = 42) -> np.ndarra
     starts[:, 8] = rng.uniform(-np.pi, np.pi, size=n_conditions)
     starts[:, 9:12] = rng.uniform(-1.0, 1.0, size=(n_conditions, 3))
     starts[:, 12:15] = rng.uniform(-0.01, 0.01, size=(n_conditions, 3))
-    starts[:, 15:19] = (OMEGA_MAX + OMEGA_MIN) / 2.0
+    starts[:, 15:19] = dynamics_info.omega_mid
     return starts

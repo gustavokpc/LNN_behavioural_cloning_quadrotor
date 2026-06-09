@@ -146,6 +146,17 @@ Gazebo/Paparazzi figure-eight comparison reads `RL_F8_1..8` from `rl_cfc_waypoin
 
 The waypoint switching distance is controlled with `--dist-error` and defaults to `0.1 m` in both Gazebo/Paparazzi comparison scripts.
 
+To test the same trained controller with a different dynamics equation, choose a dynamics model:
+
+```bash
+.venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_gazebo_square_C.py \
+  --model CFC --dynamics-model quadrotor_sim_matlab --time-simulation 60 --dist-error 0.1 --auto-play
+```
+
+Dynamics equations live in [utils/dynamics_models](utils/dynamics_models). The default `quadrotor_sim` model keeps the original reduced Python equations; `quadrotor_sim_matlab` uses the Bebop2 aerodynamic force/moment equations translated from `FM_BB2_6DOF.m`. `quadrotor_sim_matlab_controller` uses the same Matlab model but adapts the rotor yaw sign to the controller-training convention. `quadrotor_sim_supaero` uses the provided Supaero/Bebop2-style efficiency parameters. All models map normalized commands to the controller-limited `5000-10000 RPM` range. To add another model, create a new `.py` file in that folder with `INFO` and `dynamics(state, action)`.
+
+The neural-network normalization limits stay fixed to the training data; only the simulated plant equation changes.
+
 The C-backed simulators automatically map `simulator_config.yaml -> model_path` to the matching folder in `C_codes`. To force a specific C export:
 
 ```bash

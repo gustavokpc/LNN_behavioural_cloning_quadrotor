@@ -4,6 +4,7 @@ __all__ = [
     "ablation",
     "config",
     "data",
+    "dynamics_models",
     "feedforward",
     "graphics",
     "lightning",

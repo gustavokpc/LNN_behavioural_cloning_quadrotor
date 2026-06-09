@@ -14,7 +14,7 @@ import numpy as np
 from utils.animation import animate
 from utils.c_controller import CController
 from utils.config import load_yaml
-from utils.normalization_limits import OMEGA_MAX, OMEGA_MIN
+from utils.dynamics_models import available_dynamics_models, get_dynamics_info, set_dynamics_model
 from utils.quadrotor_sim import body_to_world_trajectory, world_to_body_state
 from utils.quadrotor_sim_c import rollout_c_controller
 
@@ -32,7 +32,7 @@ MODEL_PRESETS = {
     "NCP_CFC": ("configs/new_NCP_CFC_60_neurons_seq_1_epoch=18_val_loss=0.000143.yaml", "C_codes/NCP_CFC"),
 }
 DEFAULT_FLIGHT_PLAN = (
-    "/home/gustavokpc/Documents/ESTAG/paparazzi_mavlab/paparazzi/"
+    "/home/gustavokpc/Documents/ESTAG/paparazzi/"
     "conf/flight_plans/tudelft/nn_waypoints_square.xml"
 )
 
@@ -128,7 +128,10 @@ def simulate_gazebo_square(
     start_alt_m: float,
     waypoint_alt_m: float,
     c_model_dir: Path,
+    dynamics_model: str,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
+    set_dynamics_model(dynamics_model)
+    dynamics_info = get_dynamics_info()
     standby_enu, square_enu = _load_flight_plan_square(
         flight_plan,
         start_alt_m=start_alt_m,
@@ -137,7 +140,7 @@ def simulate_gazebo_square(
     square_world = np.asarray([_enu_to_network_world(wp) for wp in square_enu], dtype=np.float64)
     current_world = np.zeros(19, dtype=np.float64)
     current_world[0:3] = _enu_to_network_world(standby_enu)
-    current_world[15:19] = (OMEGA_MAX + OMEGA_MIN) / 2.0
+    current_world[15:19] = dynamics_info.omega_mid
 
     controller = CController(c_model_dir)
     controller.reset()
@@ -153,6 +156,9 @@ def simulate_gazebo_square(
     print(f"Initial ENU position STDBY: {standby_enu}")
     print(f"First target NN_SQ_{gate_index + 1}: {square_enu[gate_index]}")
     print(f"Initial distance: {initial_distance:.3f} m")
+    hover = "n/a" if dynamics_info.hover_omega is None else f"{dynamics_info.hover_omega:.3f} RPM"
+    u_hover = "n/a" if dynamics_info.u_hover is None else f"{dynamics_info.u_hover:.6f}"
+    print(f"Dynamics model: {dynamics_info.name} | hover={hover} | u_hover={u_hover}")
     print(f"Reset each waypoint: {reset_each_waypoint}")
 
     while elapsed_steps < max_total_steps:
@@ -244,6 +250,7 @@ def parse_args(cli_args: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model", default="CFC", choices=sorted(MODEL_PRESETS))
     parser.add_argument("--model-config", type=Path, default=None)
     parser.add_argument("--c-model-dir", type=Path, default=None)
+    parser.add_argument("--dynamics-model", default="quadrotor_sim", choices=available_dynamics_models())
     parser.add_argument("--dt", type=float, default=0.01)
     parser.add_argument("--time-simulation", type=float, default=60.0)
     parser.add_argument("--dist-error", type=float, default=0.1)
@@ -283,6 +290,7 @@ def main(cli_args: Iterable[str] | None = None) -> None:
         start_alt_m=args.start_alt,
         waypoint_alt_m=args.waypoint_alt,
         c_model_dir=c_model_dir,
+        dynamics_model=args.dynamics_model,
     )
 
     total_time = max(len(states_world) - 1, 0) * args.dt
@@ -295,6 +303,7 @@ def main(cli_args: Iterable[str] | None = None) -> None:
     print(f"Square waypoints ENU: {square_enu}")
     print(f"Standby ENU: {standby_enu}")
     print(f"Model: {args.model}")
+    print(f"Dynamics model: {get_dynamics_info().name}")
     print(f"Model config: {model_config}")
     print(f"C model dir: {c_model_dir}")
 
