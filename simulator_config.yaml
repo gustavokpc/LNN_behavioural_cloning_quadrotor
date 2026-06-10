@@ -5,7 +5,7 @@ dataset:  # Dataset used by the dataset-initialized simulator
 
 seed: 42  # Random seed for random-start simulations
 sensitivity_analysis: true
-number_simulations: 1  # Number of sampled starts for Simulator_random_start.py
+number_simulations: 1  # Number of sampled starts for simulators/Simulator_random_start.py
 show_sim: true  # Enable plotting/visualization
 
 simulation:  # Shared closed-loop simulator settings

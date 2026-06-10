@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Bebop2 aerodynamic dynamics translated from FM_BB2_6DOF.m."""
+"""Bebop2 aerodynamic dynamics translated from FM_BB2_6DOF.m.
+
+The rotor yaw sign is adapted to the controller-training convention.
+"""
 
 from __future__ import annotations
 
@@ -127,7 +130,7 @@ K_MODEL = {
 
 INFO = DynamicsInfo(
     name="quadrotor_sim_matlab",
-    description="Bebop2 aerodynamic force/moment model translated from FM_BB2_6DOF.m.",
+    description="Bebop2 Matlab force/moment model with rotor yaw sign adapted to the controller-training convention.",
     omega_min=OMEGA_MIN,
     omega_max=OMEGA_MAX,
     tau=TAU,
@@ -192,7 +195,7 @@ def forces_moments(
     vel: np.ndarray,
     rates: np.ndarray,
     omega_rpm: np.ndarray,
-    rotor_yaw_sign: float = 1.0,
+    rotor_yaw_sign: float = -1.0,
 ) -> tuple[np.ndarray, np.ndarray]:
     vel = np.asarray(vel, dtype=np.float64).reshape(3)
     rates = np.asarray(rates, dtype=np.float64).reshape(3)

@@ -105,7 +105,7 @@ def _benchmark_c(config_sim: dict,
 
 
 def parse_args(cli_args: Iterable[str] | None = None) -> argparse.Namespace:
-    default_root = Path(__file__).resolve().parent
+    default_root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description="Benchmark PyTorch vs C-exported controller rollouts.")
     parser.add_argument("--config", type=Path, default=default_root / "simulator_config.yaml")
     parser.add_argument("--config-dir", type=Path, default=default_root / "configs")

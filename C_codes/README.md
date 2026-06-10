@@ -36,17 +36,17 @@ Run a comparison from the repository root:
 
 The generated comparisons were checked against PyTorch with max absolute error below `6e-7` for the included test input.
 
-C-backed simulators live next to the original Python simulators:
+C-backed simulators live in `simulators/`:
 
 ```sh
-python LNN_behavioural_cloning_quadrotor/Simulator_random_start_C.py
-python LNN_behavioural_cloning_quadrotor/Simulator_start_dataset_C.py
-python LNN_behavioural_cloning_quadrotor/Simulator_race_drone_C.py
+python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_random_start_C
+python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_start_dataset_C
+python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_race_drone_C
 ```
 
 By default they select the C export from `simulator_config.yaml -> model_path`. To force a specific C export folder:
 
 ```sh
-python LNN_behavioural_cloning_quadrotor/Simulator_random_start_C.py \
+python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_random_start_C \
   --c-model-dir LNN_behavioural_cloning_quadrotor/C_codes/GRU
 ```

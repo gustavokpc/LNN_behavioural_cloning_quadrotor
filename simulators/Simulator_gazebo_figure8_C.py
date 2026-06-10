@@ -11,7 +11,7 @@ from typing import Iterable
 
 import numpy as np
 
-from Simulator_gazebo_square_C import (
+from simulators.Simulator_gazebo_square_C import (
     MODEL_PRESETS,
     _animate_square,
     _enu_to_network_world,
@@ -161,14 +161,14 @@ def simulate_gazebo_figure8(
 
 
 def parse_args(cli_args: Iterable[str] | None = None) -> argparse.Namespace:
-    default_root = Path(__file__).resolve().parent
+    default_root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description="Simulate the Paparazzi RL figure-eight with a C-exported model.")
     parser.add_argument("--project-root", type=Path, default=default_root)
     parser.add_argument("--flight-plan", type=Path, default=Path(DEFAULT_FLIGHT_PLAN))
     parser.add_argument("--model", default="CFC", choices=sorted(MODEL_PRESETS))
     parser.add_argument("--model-config", type=Path, default=None)
     parser.add_argument("--c-model-dir", type=Path, default=None)
-    parser.add_argument("--dynamics-model", default="quadrotor_sim", choices=available_dynamics_models())
+    parser.add_argument("--dynamics-model", default="quadrotor_sim_matlab", choices=available_dynamics_models())
     parser.add_argument("--dt", type=float, default=0.01)
     parser.add_argument("--time-simulation", type=float, default=60.0)
     parser.add_argument("--dist-error", type=float, default=0.1)
@@ -181,7 +181,7 @@ def parse_args(cli_args: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--no-animation", action="store_true")
     parser.add_argument("--record", action="store_true")
     parser.add_argument("--output", default="gazebo_figure8_cfc.mp4")
-    parser.add_argument("--auto-play", action="store_true")
+    parser.add_argument("--auto-play", action=argparse.BooleanOptionalAction, default=True)
     return parser.parse_args(cli_args)
 
 

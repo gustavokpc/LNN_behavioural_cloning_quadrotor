@@ -11,65 +11,27 @@ This folder contains the supervised-learning pipeline for the quadrotor controll
 - race-track style gate simulation
 - C export and C-backed simulation
 
-## Layout
+## Project Layout
 
-- [train.py](train.py)
-  Main training entrypoint. Reads `train_config.yaml`, builds the requested model, trains it, and writes:
-  - a checkpoint into `checkpoints/`
-  - a resolved copy of the config into `configs/`
-
-- [test.py](test.py)
-  Evaluation entrypoint. Rebuilds the model from the saved YAML, runs the test set, and optionally performs automated feature ablations.
-
-- [Simulator_start_dataset.py](Simulator_start_dataset.py)
-  Initializes the simulator from states taken directly from the dataset and compares simulated closed-loop rollouts against reference commands/energy.
-
-- [Simulator_random_start.py](Simulator_random_start.py)
-  Samples random physically plausible initial states and measures convergence, energy, and time-to-target.
-
-- [Simulator_race_drone.py](Simulator_race_drone.py)
-  Re-centers the drone around successive gates and evaluates repeated gate-passing behavior.
-
-- [Simulator_start_dataset_C.py](Simulator_start_dataset_C.py), [Simulator_random_start_C.py](Simulator_random_start_C.py), [Simulator_race_drone_C.py](Simulator_race_drone_C.py)
-  C-backed versions of the simulators. They use exported controllers from `C_codes/<model>/` through `ctypes`.
-
-- [C_codes](C_codes)
-  C exports for the trained checkpoints. Each model folder contains `nn_parameters.*`, `nn_operations.*`, `run_controller.c`, `test_controller.c`, and `compare_python_c.py`.
-
-- [utils/model_builder.py](utils/model_builder.py)
-  Centralized architecture factory used by all scripts. This is the main place where model type, width scaling, preprocessing blocks, and CfC/LTC options are interpreted.
-
-- [utils/quadrotor_sim.py](utils/quadrotor_sim.py)
-  Shared simulation code:
-  - state transforms
-  - continuous-time dynamics
-  - numerical integration
-  - observation window management
-  - checkpoint-backed controller rollout
-
-- [utils/quadrotor_sim_c.py](utils/quadrotor_sim_c.py)
-  Shared rollout code for the C-backed simulators.
-
-- [utils/c_controller.py](utils/c_controller.py)
-  Compiles and loads the exported C controllers as shared libraries and exposes `nn_reset`/`nn_control` from Python.
-
-- [utils/ablation.py](utils/ablation.py)
-  Feature-group masking for automated testing ablations.
-
-- [utils/feedforward.py](utils/feedforward.py)
-  Plain MLP baseline, wrapped to match the same sequence interface as the recurrent models.
-
-- [utils/data.py](utils/data.py)
-  Dataset loading, normalization-vector construction, feature expansion, and sliding-window generation.
-
-- [utils/lightning.py](utils/lightning.py)
-  Shared Lightning wrapper used by training and test-time checkpoint execution.
+- [train.py](train.py): trains a controller from `train_config.yaml` and saves the checkpoint/config pair.
+- [test.py](test.py): rebuilds a saved checkpoint, evaluates it, and optionally runs ablations.
+- [simulators](simulators): closed-loop rollout scripts, including the Gazebo/Paparazzi C-controller comparisons.
+- [rl](rl): PPO/SB3 workspace for Bebop2 experiments on top of the trained CfC controller.
+- [C_codes](C_codes): exported C controllers for each trained checkpoint.
+- [checkpoints](checkpoints) and [configs](configs): saved weights and matching YAML configs.
+- [utils](utils): shared model-building, data, dynamics, controller-loading, simulation, and plotting utilities.
 
 ## Main Workflow
 
+The command examples below assume you are in the parent folder `LNN_estag`:
+
+```bash
+cd /home/gustavokpc/Documents/ESTAG/LNN_estag
+```
+
 ### 1. Training
 
-Edit [train_config.yaml](train_config.yaml), then run from the repository root:
+Edit [train_config.yaml](train_config.yaml), then run:
 
 ```bash
 .venv/bin/python LNN_behavioural_cloning_quadrotor/train.py
@@ -96,71 +58,83 @@ Optional plot:
 .venv/bin/python LNN_behavioural_cloning_quadrotor/test.py --plot
 ```
 
-### 3. Simulators
+### 3. Simulations
 
-Set `model_path` in [simulator_config.yaml](simulator_config.yaml), then choose one.
+Recommended Bebop2/Gazebo square simulation with the trained CfC C export:
+
+```bash
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_gazebo_square_C \
+  --model CFC \
+  --dynamics-model quadrotor_sim_matlab \
+  --time-simulation 60 \
+  --dist-error 0.1 \
+  --dt 0.01 \
+  --integration-method rk4 \
+  --implicit-iters 1 \
+  --start-waypoint-index 3 \
+  --start-alt 1.0 \
+  --waypoint-alt 1.5 \
+  --auto-play
+```
+
+The same defaults are already built into the command-line parser, so this shorter command is equivalent for the square simulation:
+
+```bash
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_gazebo_square_C
+```
+
+Gazebo/Paparazzi square reads `NN_SQ_*` waypoints from `nn_waypoints_square.xml`. The figure-eight version reads `RL_F8_1..8` from `rl_cfc_waypoints_square.xml`:
+
+```bash
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_gazebo_figure8_C
+```
+
+Useful options for `Simulator_gazebo_square_C` and `Simulator_gazebo_figure8_C`:
+
+| Option | Default if omitted | Choices / meaning |
+| --- | --- | --- |
+| `--model` | `CFC` | `MLP`, `LTC`, `RNN`, `CONV_CFC_DEFAULT`, `CFC`, `CFC_PURE`, `CTRNN`, `GRU`, `LSTM`, `NCP_CFC` |
+| `--dynamics-model` | `quadrotor_sim_matlab` | `quadrotor_sim` for the original reduced model, `quadrotor_sim_matlab` for the Bebop2 MATLAB force/moment model |
+| `--time-simulation` | `60.0` | Maximum simulated time in seconds |
+| `--dist-error` | `0.1` | Waypoint switching distance in meters |
+| `--dt` | `0.01` | Simulation timestep in seconds |
+| `--integration-method` | `rk4` | Integration method passed to the rollout code |
+| `--implicit-iters` | `1` | Iterations used by implicit integration methods |
+| `--start-waypoint-index` | `3` for square, `0` for figure-eight | First waypoint index in the route |
+| `--start-alt` | `1.0` | Initial `STDBY` altitude in meters |
+| `--waypoint-alt` | `1.5` | Target waypoint altitude in meters |
+| `--auto-play` / `--no-auto-play` | `--auto-play` | Start the animation automatically or wait for manual play |
+| `--reset-each-waypoint` | disabled | Reset recurrent/CfC controller memory at each waypoint |
+| `--no-animation` | disabled | Run metrics without opening the animation |
+| `--record --output <file.mp4>` | disabled, `gazebo_square_cfc.mp4` or `gazebo_figure8_cfc.mp4` | Save the animation instead of only displaying it |
+| `--flight-plan <path>` | script-specific Paparazzi XML path | Use a different waypoint XML |
+| `--model-config <path>` | matching YAML from `MODEL_PRESETS` | Override the config YAML for the selected model |
+| `--c-model-dir <path>` | matching folder from `MODEL_PRESETS` | Override the exported C controller folder |
+
+Dynamics equations live in [utils/dynamics_models](utils/dynamics_models). The neural-network normalization limits stay fixed to the training data; only the simulated plant equation changes when you switch `--dynamics-model`.
+
+Other closed-loop simulators use [simulator_config.yaml](simulator_config.yaml) for `model_path`, horizon, thresholds, and dataset paths.
 
 Python/PyTorch controllers:
 
 ```bash
-.venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_start_dataset.py
-.venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_random_start.py
-.venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_race_drone.py
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_start_dataset
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_random_start
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_race_drone
 ```
 
 C-exported controllers:
 
 ```bash
-.venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_start_dataset_C.py
-.venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_random_start_C.py
-.venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_race_drone_C.py
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_start_dataset_C
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_random_start_C
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_race_drone_C
 ```
 
-Gazebo/Paparazzi square comparison with the CFC C export:
+To force a specific C export in those C-backed simulators:
 
 ```bash
-.venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_gazebo_square_C.py \
-  --time-simulation 60 --dist-error 0.1 --auto-play
-```
-
-This reads the Paparazzi square waypoints from `nn_waypoints_square.xml`, starts at the `STDBY` x/y position at `1.0 m`, and uses `NN_SQ_*` waypoints at `1.5 m`. To compare waypoint memory reset behavior:
-
-```bash
-.venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_gazebo_square_C.py \
-  --time-simulation 60 --dist-error 0.1 --auto-play --reset-each-waypoint
-```
-
-To test another exported model on the same square path, use `--model`:
-
-```bash
-.venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_gazebo_square_C.py \
-  --model GRU --time-simulation 60 --dist-error 0.1 --auto-play
-```
-
-Gazebo/Paparazzi figure-eight comparison reads `RL_F8_1..8` from `rl_cfc_waypoints_square.xml` and starts from the same `STDBY` point as the square simulation:
-
-```bash
-.venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_gazebo_figure8_C.py \
-  --time-simulation 60 --dist-error 0.1 --auto-play
-```
-
-The waypoint switching distance is controlled with `--dist-error` and defaults to `0.1 m` in both Gazebo/Paparazzi comparison scripts.
-
-To test the same trained controller with a different dynamics equation, choose a dynamics model:
-
-```bash
-.venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_gazebo_square_C.py \
-  --model CFC --dynamics-model quadrotor_sim_matlab --time-simulation 60 --dist-error 0.1 --auto-play
-```
-
-Dynamics equations live in [utils/dynamics_models](utils/dynamics_models). The default `quadrotor_sim` model keeps the original reduced Python equations; `quadrotor_sim_matlab` uses the Bebop2 aerodynamic force/moment equations translated from `FM_BB2_6DOF.m`. `quadrotor_sim_matlab_controller` uses the same Matlab model but adapts the rotor yaw sign to the controller-training convention. `quadrotor_sim_supaero` uses the provided Supaero/Bebop2-style efficiency parameters. All models map normalized commands to the controller-limited `5000-10000 RPM` range. To add another model, create a new `.py` file in that folder with `INFO` and `dynamics(state, action)`.
-
-The neural-network normalization limits stay fixed to the training data; only the simulated plant equation changes.
-
-The C-backed simulators automatically map `simulator_config.yaml -> model_path` to the matching folder in `C_codes`. To force a specific C export:
-
-```bash
-.venv/bin/python LNN_behavioural_cloning_quadrotor/Simulator_random_start_C.py \
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_random_start_C \
   --c-model-dir LNN_behavioural_cloning_quadrotor/C_codes/GRU
 ```
 
@@ -171,14 +145,14 @@ A helper script is available to animate one or more dataset-based rollouts in th
 PyTorch controller visualization:
 
 ```bash
-.venv/bin/python LNN_behavioural_cloning_quadrotor/visualize_rollout.py \
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.visualize_rollout \
   --trajectory 0 --trajectories 4 --simultaneous --draw-path
 ```
 
 C-exported controller visualization:
 
 ```bash
-.venv/bin/python LNN_behavioural_cloning_quadrotor/visualize_rollout_C.py \
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.visualize_rollout_C \
   --trajectory 0 --trajectories 4 --simultaneous --draw-path
 ```
 
@@ -191,21 +165,21 @@ This will:
 If you want to save the animation instead of opening a window:
 
 ```bash
-.venv/bin/python LNN_behavioural_cloning_quadrotor/visualize_rollout.py \
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.visualize_rollout \
   --trajectory 0 --trajectories 4 --record --output /tmp/rollout.mp4
 ```
 
 For the C version:
 
 ```bash
-.venv/bin/python LNN_behavioural_cloning_quadrotor/visualize_rollout_C.py \
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.visualize_rollout_C \
   --trajectory 0 --trajectories 4 --record --output /tmp/rollout_c.mp4
 ```
 
 The C visualizer uses `simulator_config.yaml -> model_path` to pick a folder in `C_codes`. To force a specific export:
 
 ```bash
-.venv/bin/python LNN_behavioural_cloning_quadrotor/visualize_rollout_C.py \
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.visualize_rollout_C \
   --c-model-dir LNN_behavioural_cloning_quadrotor/C_codes/CFC \
   --trajectory 0 --trajectories 4 --simultaneous --draw-path
 ```
@@ -214,16 +188,16 @@ The C visualizer uses `simulator_config.yaml -> model_path` to pick a folder in 
 
 There are two benchmark styles.
 
-`benchmark_python_vs_c.py` keeps the simulator loop in Python and calls the C controller through `ctypes`. This is useful for checking integration overhead, but it is not representative of firmware C:
+`simulators/benchmark_python_vs_c_ctypes.py` keeps the simulator loop in Python and calls the C controller through `ctypes`. This is useful for checking integration overhead, but it is not representative of firmware C:
 
 ```bash
-.venv/bin/python LNN_behavioural_cloning_quadrotor/benchmark_python_vs_c.py --runs 1000
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.benchmark_python_vs_c_ctypes --runs 1000
 ```
 
 For a faster exploratory run:
 
 ```bash
-.venv/bin/python LNN_behavioural_cloning_quadrotor/benchmark_python_vs_c.py \
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.benchmark_python_vs_c_ctypes \
   --runs 100 --horizon-steps 100
 ```
 
@@ -232,7 +206,7 @@ The benchmark measures the complete Python simulation loop. The C path still cro
 For a cleaner comparison, run the PyTorch/Python benchmark and the full-C benchmark separately. The full-C benchmark currently exists for the MLP export:
 
 ```bash
-.venv/bin/python LNN_behavioural_cloning_quadrotor/benchmark_python_only.py \
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.benchmark_python_only \
   --runs 1000 --horizon-steps 400
 
 gcc -std=c99 -O3 -Wall -Wextra \

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Visualize dataset-based rollouts using the exported C controllers."""
 
 from __future__ import annotations
 
@@ -7,21 +8,19 @@ from pathlib import Path
 import argparse
 import numpy as np
 
+from simulators.Simulator_start_dataset import _prepare_dataset
 from utils.animation import animate
+from utils.c_controller import CController, c_dir_from_model_path
 from utils.config import load_yaml, resolve_saved_config
-from Simulator_start_dataset import _initial_window, _prepare_dataset
-from utils.quadrotor_sim import (
-    body_to_world_trajectory,
-    input_labels_without_time,
-    rollout_controller,
-)
+from utils.quadrotor_sim import body_to_world_trajectory
+from utils.quadrotor_sim_c import rollout_c_controller
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Visualize a dataset-based quadrotor rollout with the animation helper."
+        description="Visualize a dataset-based quadrotor rollout with an exported C controller."
     )
-    default_root = Path(__file__).resolve().parent
+    default_root = Path(__file__).resolve().parents[1]
     parser.add_argument(
         "--config",
         type=Path,
@@ -38,7 +37,13 @@ def parse_args() -> argparse.Namespace:
         "--project-root",
         type=Path,
         default=default_root,
-        help="Project root directory used to resolve checkpoint paths.",
+        help="Project root directory used to resolve C export paths.",
+    )
+    parser.add_argument(
+        "--c-model-dir",
+        type=Path,
+        default=None,
+        help="Optional C export directory. Defaults to the folder mapped from simulator_config.yaml model_path.",
     )
     parser.add_argument(
         "--trajectory",
@@ -70,7 +75,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=str,
-        default="rollout.mp4",
+        default="rollout_c.mp4",
         help="Output filename when --record is enabled.",
     )
     return parser.parse_args()
@@ -94,9 +99,8 @@ def main() -> None:
             f"Requested {args.trajectories} trajectories starting at {args.trajectory} exceeds available dataset size {raw_inputs.shape[0]}."
         )
 
-    use_sequencing = bool(config_model.get("sequencing", {}).get("value", False))
-    seq_len = int(config_model.get("sequencing", {}).get("seq_len", 1))
-    model = _build_model(config_model, args.project_root, config_sim["model_path"])
+    c_dir = args.c_model_dir or c_dir_from_model_path(config_sim["model_path"], args.project_root)
+    controller = CController(c_dir)
 
     times = []
     xs = []
@@ -107,24 +111,19 @@ def main() -> None:
     psis = []
     us = []
     names = []
+    final_positions = []
 
     for traj_idx in range(args.trajectory, args.trajectory + args.trajectories):
         dt = float(dt_values[traj_idx])
         raw_traj_inputs = raw_inputs[traj_idx]
         initial_state = _prepare_initial_state(raw_traj_inputs, config_model["dataset"]["input_labels"])
-        init_window = _initial_window(raw_traj_inputs, config_model["dataset"]["input_labels"], seq_len)
 
-        simulated_states_body, generated_actions = rollout_controller(
-            model=model,
+        simulated_states_body, generated_actions = rollout_c_controller(
+            controller=controller,
             initial_state=initial_state,
             input_labels=config_model["dataset"]["input_labels"],
             dt=dt,
             horizon_steps=max(1, int(round(config_sim["simulation"]["time_simulation"] / dt))),
-            device=_get_device(),
-            use_sequencing=use_sequencing,
-            seq_len=seq_len,
-            initial_window=init_window,
-            force_timespans=True,
             integration_method=config_sim["simulation"].get("integration_method", "explicit"),
             implicit_iters=int(config_sim["simulation"].get("implicit_iterations", 5)),
         )
@@ -133,7 +132,11 @@ def main() -> None:
         steps = min(len(world_states), len(generated_actions))
         world_states = world_states[:steps]
         actions = generated_actions[:steps]
-        t = np.arange(steps, dtype=np.float64) * float(config_sim["simulation"]["dt"])
+        t = np.arange(steps, dtype=np.float64) * dt
+
+        final_position = world_states[-1, 0:3]
+        final_positions.append(final_position)
+        _print_final_position_error(name=f"C_traj_{traj_idx}", final_position=final_position)
 
         times.append(t)
         xs.append(world_states[:, 0])
@@ -143,14 +146,15 @@ def main() -> None:
         thetas.append(world_states[:, 7])
         psis.append(world_states[:, 8])
         us.append(actions)
-        names.append(f"traj_{traj_idx}")
+        names.append(f"C_traj_{traj_idx}")
+
+    _print_final_z_summary(np.asarray(final_positions, dtype=np.float64))
 
     max_steps = max(arr.shape[0] for arr in xs)
+
     def pad_sequence(arr, length, axis=0):
         if arr.shape[0] >= length:
             return arr
-        pad_shape = list(arr.shape)
-        pad_shape[0] = length - arr.shape[0]
         padding = np.repeat(arr[-1:], repeats=length - arr.shape[0], axis=axis)
         return np.concatenate([arr, padding], axis=axis)
 
@@ -197,22 +201,34 @@ def main() -> None:
     )
 
 
-def _get_device():
-    import torch
-    return torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-
-def _build_model(config_model: dict, project_root: Path, model_path: str):
-    from utils.quadrotor_sim import build_lightning_model
-    return build_lightning_model(config_model, model_path, project_root, _get_device())
-
-
 def _prepare_initial_state(raw_traj_inputs: np.ndarray, input_labels: list[str]) -> np.ndarray:
-    from utils.quadrotor_sim import state_from_input_features
     from utils.data import expand_feature_labels
+    from utils.quadrotor_sim import state_from_input_features
+
     base_labels = [label for label in input_labels if label not in {"t", "dt"}]
     expanded_labels = expand_feature_labels(base_labels)
     return state_from_input_features(raw_traj_inputs[:, 0], expanded_labels)
+
+
+def _print_final_position_error(name: str, final_position: np.ndarray) -> None:
+    final_x, final_y, final_z = (float(value) for value in final_position)
+    final_distance = float(np.linalg.norm(final_position))
+    print(
+        f"[{name}] final_position=({final_x:+.3f}, {final_y:+.3f}, {final_z:+.3f}) m | "
+        f"distance_to_origin={final_distance:.3f} m"
+    )
+
+
+def _print_final_z_summary(final_positions: np.ndarray) -> None:
+    final_z = final_positions[:, 2]
+    mean_abs_z = float(np.mean(np.abs(final_z)))
+    mean_z = float(np.mean(final_z))
+    std_z = float(np.std(final_z))
+    print(
+        f"[summary] trajectories={len(final_z)} | "
+        f"mean_abs_final_z={mean_abs_z:.3f} m | "
+        f"mean_final_z={mean_z:+.3f} m | std_final_z={std_z:.3f} m"
+    )
 
 
 if __name__ == "__main__":

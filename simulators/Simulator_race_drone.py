@@ -147,7 +147,7 @@ def _plot_race(states_world: np.ndarray, actions: np.ndarray) -> None:
 
 def parse_args(cli_args: Iterable[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Race-gate closed-loop controller evaluation.")
-    default_root = Path(__file__).resolve().parent
+    default_root = Path(__file__).resolve().parents[1]
     parser.add_argument("--config", type=Path, default=default_root / "simulator_config.yaml")
     parser.add_argument("--config-dir", type=Path, default=default_root / "configs")
     parser.add_argument("--project-root", type=Path, default=default_root)
