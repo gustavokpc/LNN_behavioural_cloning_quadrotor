@@ -30,7 +30,7 @@ OMEGA_MIN = 5000.0
 TAU = 0.06
 
 INFO = DynamicsInfo(
-    name="quadrotor_sim",
+    name="quadrotor_sim_original",
     description="Original reduced quadrotor dynamics equation.",
     omega_min=OMEGA_MIN,
     omega_max=OMEGA_MAX,

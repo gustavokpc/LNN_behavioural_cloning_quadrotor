@@ -1,2 +1,6 @@
 datasets/
 __pycache__/
+rl/checkpoints/**
+!rl/checkpoints/.gitkeep
+rl/runs/**
+!rl/runs/.gitkeep

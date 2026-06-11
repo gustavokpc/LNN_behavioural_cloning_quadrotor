@@ -15,7 +15,7 @@ import torch
 import os
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
-from utils.normalization_limits import GLOBAL_MAX, GLOBAL_MIN
+from .normalization_limits import GLOBAL_MAX, GLOBAL_MIN
 
 
 def expand_feature_labels(labels):

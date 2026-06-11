@@ -34,6 +34,9 @@ class DynamicsInfo:
 
 _PACKAGE = __name__
 _ACTIVE_MODEL: ModuleType | None = None
+_ALIASES = {
+    "quadrotor_sim": "quadrotor_sim_original",
+}
 
 
 def available_dynamics_models() -> list[str]:
@@ -47,7 +50,7 @@ def available_dynamics_models() -> list[str]:
 
 
 def load_dynamics_model(name: str) -> ModuleType:
-    model_name = name.strip()
+    model_name = _ALIASES.get(name.strip(), name.strip())
     if not model_name:
         raise ValueError("Dynamics model name cannot be empty.")
     try:
@@ -69,7 +72,7 @@ def set_dynamics_model(name: str) -> ModuleType:
 def get_dynamics_model() -> ModuleType:
     global _ACTIVE_MODEL
     if _ACTIVE_MODEL is None:
-        _ACTIVE_MODEL = load_dynamics_model("quadrotor_sim")
+        _ACTIVE_MODEL = load_dynamics_model("quadrotor_sim_original")
     return _ACTIVE_MODEL
 
 

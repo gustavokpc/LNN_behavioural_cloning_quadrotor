@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Gazebo/Paparazzi square-waypoint simulation using the exported CFC controller."""
+"""Square-waypoint simulation using the exported CFC controller."""
 
 from __future__ import annotations
 
 import argparse
-import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import Iterable
 
@@ -31,9 +30,15 @@ MODEL_PRESETS = {
     "LSTM": ("configs/new_LSTM_64_neurons_seq_1_epoch=17_val_loss=0.000092.yaml", "C_codes/LSTM"),
     "NCP_CFC": ("configs/new_NCP_CFC_60_neurons_seq_1_epoch=18_val_loss=0.000143.yaml", "C_codes/NCP_CFC"),
 }
-DEFAULT_FLIGHT_PLAN = (
-    "/home/gustavokpc/Documents/ESTAG/paparazzi/"
-    "conf/flight_plans/tudelft/nn_waypoints_square.xml"
+DEFAULT_STANDBY_ENU = np.asarray([0.0, 0.0, 1.0], dtype=np.float64)
+DEFAULT_SQUARE_ENU = np.asarray(
+    [
+        [2.0, 1.5, 1.5],
+        [2.0, -1.5, 1.5],
+        [-2.0, -1.5, 1.5],
+        [-2.0, 1.5, 1.5],
+    ],
+    dtype=np.float64,
 )
 
 
@@ -64,43 +69,12 @@ def _network_world_to_animation(points: np.ndarray) -> np.ndarray:
     return np.stack([points[..., 1], points[..., 0], points[..., 2]], axis=-1)
 
 
-def _waypoint_height(elem: ET.Element, default_alt: float) -> float:
-    if "height" in elem.attrib:
-        return float(elem.attrib["height"])
-    if "alt" in elem.attrib:
-        return float(elem.attrib["alt"])
-    return default_alt
-
-
-def _load_flight_plan_square(
-    path: Path,
+def _square_waypoints(
     start_alt_m: float = 1.0,
     waypoint_alt_m: float = 1.5,
 ) -> tuple[np.ndarray, np.ndarray]:
-    root = ET.parse(path).getroot()
-    default_alt = float(root.attrib.get("alt", 1.0))
-    waypoints: dict[str, np.ndarray] = {}
-    waypoint_root = root.find("waypoints")
-    if waypoint_root is None:
-        raise KeyError(f"Flight plan has no <waypoints> section: {path}")
-    for elem in waypoint_root:
-        name = elem.attrib.get("name")
-        if not name or "x" not in elem.attrib or "y" not in elem.attrib:
-            continue
-        waypoints[name] = np.asarray(
-            [
-                float(elem.attrib["x"]),
-                float(elem.attrib["y"]),
-                _waypoint_height(elem, default_alt),
-            ],
-            dtype=np.float64,
-        )
-
-    try:
-        standby = waypoints["STDBY"].copy()
-        square = np.asarray([waypoints[f"NN_SQ_{idx}"] for idx in range(1, 5)], dtype=np.float64)
-    except KeyError as exc:
-        raise KeyError(f"Flight plan is missing waypoint {exc!s}.") from exc
+    standby = DEFAULT_STANDBY_ENU.copy()
+    square = DEFAULT_SQUARE_ENU.copy()
     standby[2] = float(start_alt_m)
     square[:, 2] = float(waypoint_alt_m)
     return standby, square
@@ -117,7 +91,6 @@ def _wrap_angle(angle: float) -> float:
 def simulate_gazebo_square(
     config_model: dict,
     project_root: Path,
-    flight_plan: Path,
     dt: float,
     time_simulation: float,
     dist_error: float,
@@ -132,8 +105,7 @@ def simulate_gazebo_square(
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     set_dynamics_model(dynamics_model)
     dynamics_info = get_dynamics_info()
-    standby_enu, square_enu = _load_flight_plan_square(
-        flight_plan,
+    standby_enu, square_enu = _square_waypoints(
         start_alt_m=start_alt_m,
         waypoint_alt_m=waypoint_alt_m,
     )
@@ -244,9 +216,8 @@ def _animate_square(
 
 def parse_args(cli_args: Iterable[str] | None = None) -> argparse.Namespace:
     default_root = Path(__file__).resolve().parents[1]
-    parser = argparse.ArgumentParser(description="Simulate the Paparazzi Gazebo square with the CFC C export.")
+    parser = argparse.ArgumentParser(description="Simulate the square waypoint path with a C-exported model.")
     parser.add_argument("--project-root", type=Path, default=default_root)
-    parser.add_argument("--flight-plan", type=Path, default=Path(DEFAULT_FLIGHT_PLAN))
     parser.add_argument("--model", default="CFC", choices=sorted(MODEL_PRESETS))
     parser.add_argument("--model-config", type=Path, default=None)
     parser.add_argument("--c-model-dir", type=Path, default=None)
@@ -271,15 +242,13 @@ def main(cli_args: Iterable[str] | None = None) -> None:
     args = parse_args(cli_args)
     model_config, c_model_dir = resolve_model_paths(args.project_root, args.model, args.model_config, args.c_model_dir)
     config_model = load_yaml(model_config)
-    standby_enu, square_enu = _load_flight_plan_square(
-        args.flight_plan,
+    standby_enu, square_enu = _square_waypoints(
         start_alt_m=args.start_alt,
         waypoint_alt_m=args.waypoint_alt,
     )
     states_world, actions, targets_world, gates_passed = simulate_gazebo_square(
         config_model=config_model,
         project_root=args.project_root,
-        flight_plan=args.flight_plan,
         dt=args.dt,
         time_simulation=args.time_simulation,
         dist_error=args.dist_error,

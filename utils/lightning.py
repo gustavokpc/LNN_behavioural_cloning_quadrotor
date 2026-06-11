@@ -25,8 +25,8 @@ import torch.nn as nn
 import lightning as L  # PyTorch Lightning core API
 import numpy as np
 import time
-import utils.normalization_limits as norm  # physical constants
-from utils.data import get_norm_vectors  # normalization helper
+from . import normalization_limits as norm  # physical constants
+from .data import get_norm_vectors  # normalization helper
 
 class Lightning_Model(L.LightningModule):
     """

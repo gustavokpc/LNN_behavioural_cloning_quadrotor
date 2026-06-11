@@ -16,7 +16,6 @@ from simulators.Simulator_gazebo_square_C import (
     _animate_square,
     _enu_to_network_world,
     _network_world_to_enu,
-    _waypoint_height,
     _wrap_angle,
     resolve_model_paths,
 )
@@ -31,6 +30,14 @@ DEFAULT_FLIGHT_PLAN = (
     "/home/gustavokpc/Documents/ESTAG/paparazzi_mavlab/paparazzi/"
     "conf/flight_plans/tudelft/rl_cfc_waypoints_square.xml"
 )
+
+
+def _waypoint_height(elem: ET.Element, default_alt: float) -> float:
+    if "height" in elem.attrib:
+        return float(elem.attrib["height"])
+    if "alt" in elem.attrib:
+        return float(elem.attrib["alt"])
+    return default_alt
 
 
 def _load_flight_plan_figure8(

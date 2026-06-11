@@ -83,7 +83,9 @@ The same defaults are already built into the command-line parser, so this shorte
 .venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_gazebo_square_C
 ```
 
-Gazebo/Paparazzi square reads `NN_SQ_*` waypoints from `nn_waypoints_square.xml`. The figure-eight version reads `RL_F8_1..8` from `rl_cfc_waypoints_square.xml`:
+The square simulation uses the four `NN_SQ_*` points directly in the script:
+`(2.0, 1.5, 1.5)`, `(2.0, -1.5, 1.5)`, `(-2.0, -1.5, 1.5)`, `(-2.0, 1.5, 1.5)`.
+The figure-eight version still reads `RL_F8_1..8` from `rl_cfc_waypoints_square.xml`:
 
 ```bash
 .venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_gazebo_figure8_C
@@ -94,7 +96,7 @@ Useful options for `Simulator_gazebo_square_C` and `Simulator_gazebo_figure8_C`:
 | Option | Default if omitted | Choices / meaning |
 | --- | --- | --- |
 | `--model` | `CFC` | `MLP`, `LTC`, `RNN`, `CONV_CFC_DEFAULT`, `CFC`, `CFC_PURE`, `CTRNN`, `GRU`, `LSTM`, `NCP_CFC` |
-| `--dynamics-model` | `quadrotor_sim_matlab` | `quadrotor_sim` for the original reduced model, `quadrotor_sim_matlab` for the Bebop2 MATLAB force/moment model |
+| `--dynamics-model` | `quadrotor_sim_matlab` | `quadrotor_sim_original` for the original reduced model, `quadrotor_sim_matlab` for the Bebop2 MATLAB force/moment model |
 | `--time-simulation` | `60.0` | Maximum simulated time in seconds |
 | `--dist-error` | `0.1` | Waypoint switching distance in meters |
 | `--dt` | `0.01` | Simulation timestep in seconds |
@@ -107,7 +109,6 @@ Useful options for `Simulator_gazebo_square_C` and `Simulator_gazebo_figure8_C`:
 | `--reset-each-waypoint` | disabled | Reset recurrent/CfC controller memory at each waypoint |
 | `--no-animation` | disabled | Run metrics without opening the animation |
 | `--record --output <file.mp4>` | disabled, `gazebo_square_cfc.mp4` or `gazebo_figure8_cfc.mp4` | Save the animation instead of only displaying it |
-| `--flight-plan <path>` | script-specific Paparazzi XML path | Use a different waypoint XML |
 | `--model-config <path>` | matching YAML from `MODEL_PRESETS` | Override the config YAML for the selected model |
 | `--c-model-dir <path>` | matching folder from `MODEL_PRESETS` | Override the exported C controller folder |
 
