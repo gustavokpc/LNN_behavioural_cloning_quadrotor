@@ -22,8 +22,9 @@ from gymnasium import spaces
 from stable_baselines3.common.vec_env import VecEnv
 
 from ..bc_policy import FrozenBCController
+from ...utils.data import get_norm_vectors
 from ...utils.dynamics_models import quadrotor_sim_matlab, set_dynamics_model
-from ...utils.quadrotor_sim import body_to_world_state, integrate_state, world_to_body_state
+from ...utils.quadrotor_sim import STATE_LABELS, body_to_world_state, integrate_state, world_to_body_state
 
 
 DEFAULT_SQUARE_WAYPOINTS = np.asarray(
@@ -52,6 +53,9 @@ class Bebop2WaypointEnv(VecEnv):
         integration_method: str = "rk4",
         implicit_iters: int = 1,
         initialize_at_random_waypoints: bool = False,
+        terminate_on_waypoint: bool = True,
+        normalize_observations: bool = False,
+        randomize_external_moments: bool = True,
         seed: int | None = None,
     ):
         self.seed(seed)
@@ -66,6 +70,12 @@ class Bebop2WaypointEnv(VecEnv):
         self.integration_method = integration_method
         self.implicit_iters = int(implicit_iters)
         self.initialize_at_random_waypoints = initialize_at_random_waypoints
+        self.terminate_on_waypoint = bool(terminate_on_waypoint)
+        self.normalize_observations = bool(normalize_observations)
+        self.randomize_external_moments = bool(randomize_external_moments)
+        norm_min, norm_max = get_norm_vectors(STATE_LABELS)
+        self.obs_min = norm_min.reshape(-1).astype(np.float32)
+        self.obs_max = norm_max.reshape(-1).astype(np.float32)
 
         action_space = spaces.Box(low=0.0, high=1.0, shape=(4,), dtype=np.float32)
         observation_space = spaces.Box(
@@ -92,6 +102,15 @@ class Bebop2WaypointEnv(VecEnv):
 
         self.reset()
 
+    def _normalize_states(self, states: np.ndarray) -> np.ndarray:
+        denom = self.obs_max - self.obs_min + 1e-10
+        return ((states - self.obs_min) / denom).astype(np.float32)
+
+    def _observations(self) -> np.ndarray:
+        if not self.normalize_observations:
+            return self.states
+        return self._normalize_states(self.states)
+
     def reset_seed(self):
         if self._seed_value is not None:
             np.random.seed(self._seed_value)
@@ -106,9 +125,24 @@ class Bebop2WaypointEnv(VecEnv):
     def _absolute_position(self, state_body: np.ndarray, target: np.ndarray) -> np.ndarray:
         return target + self._world_relative_state(state_body)[0:3]
 
-    def _make_body_state(self, absolute_position: np.ndarray, target: np.ndarray) -> np.ndarray:
+    def _sample_external_moments(self, num_samples: int) -> np.ndarray:
+        if not self.randomize_external_moments:
+            return np.zeros((num_samples, 3), dtype=np.float64)
+        return np.random.uniform(
+            low=self.obs_min[12:15],
+            high=self.obs_max[12:15],
+            size=(num_samples, 3),
+        ).astype(np.float64)
+
+    def _make_body_state(
+        self,
+        absolute_position: np.ndarray,
+        target: np.ndarray,
+        external_moment: np.ndarray,
+    ) -> np.ndarray:
         state_world = np.zeros(19, dtype=np.float64)
         state_world[0:3] = absolute_position - target
+        state_world[12:15] = external_moment
         hover_omega = quadrotor_sim_matlab.INFO.hover_omega
         state_world[15:19] = hover_omega if hover_omega is not None else quadrotor_sim_matlab.INFO.omega_mid
         return world_to_body_state(state_world)
@@ -124,7 +158,7 @@ class Bebop2WaypointEnv(VecEnv):
     def reset_(self, dones: np.ndarray) -> np.ndarray:
         num_reset = int(dones.sum())
         if num_reset == 0:
-            return self.states
+            return self._observations()
 
         if self.initialize_at_random_waypoints:
             self.target_waypoints[dones] = np.random.randint(0, self.num_waypoints, size=num_reset)
@@ -138,15 +172,21 @@ class Bebop2WaypointEnv(VecEnv):
             absolute_positions[:, 2] = self.start_pos[2] + np.random.uniform(-0.15, 0.15, size=num_reset)
 
         targets = self._target_positions()[dones]
+        external_moments = self._sample_external_moments(num_reset)
         reset_states = [
-            self._make_body_state(absolute_position, target)
-            for absolute_position, target in zip(absolute_positions, targets, strict=True)
+            self._make_body_state(absolute_position, target, external_moment)
+            for absolute_position, target, external_moment in zip(
+                absolute_positions,
+                targets,
+                external_moments,
+                strict=True,
+            )
         ]
         self.states[dones] = np.asarray(reset_states, dtype=np.float32)
         self.step_counts[dones] = 0
         self.prev_derivs = [None if done else deriv for done, deriv in zip(dones, self.prev_derivs, strict=True)]
         self._reset_episode_metrics(dones)
-        return self.states
+        return self._observations()
 
     def reset(self) -> np.ndarray:
         return self.reset_(np.ones(self.num_envs, dtype=bool))
@@ -185,18 +225,20 @@ class Bebop2WaypointEnv(VecEnv):
         waypoint_reached = d2w_new < self.waypoint_radius
 
         speed = np.linalg.norm(new_states[:, 3:6], axis=1)
-        rates = np.linalg.norm(new_states[:, 9:12], axis=1)
-        attitude = np.linalg.norm(new_states[:, 6:8], axis=1)
-        action_delta = np.linalg.norm(actions - self.prev_actions, axis=1)
-
+        rate_penalty = 0.001 * np.linalg.norm(new_states[:, 9:12], axis=1)
+        # angle_penalty = 0.0 * np.linalg.norm(new_states[:, 6:8], axis=1)
+        # action_penalty = 0.0 * np.linalg.norm(actions, axis=1)
+        # action_penalty_delta = 0.001 * np.linalg.norm(actions - self.prev_actions, axis=1)
         progress_reward = d2w_old - d2w_new
-        rewards = (
-            progress_reward
-            + 1.0 * waypoint_reached.astype(np.float64)
-            - 0.001 * rates
-            - 0.01 * attitude
-            - 0.001 * action_delta
-        )
+        # max_speed = 12.0
+        # cap progress rewards to be less than max_speed*dt
+        # progress_reward[progress_reward > max_speed * self.dt] = max_speed * self.dt
+
+        # rewards = progress_reward - rate_penalty - angle_penalty
+        rewards = progress_reward - rate_penalty  # - action_penalty - action_penalty_delta
+
+        # Waypoint reward + dist penalty
+        rewards[waypoint_reached] = 1.0 # CHANGED HERE, WAS COMMENTED BEFORE SO WATCH OUT ----------
 
         step_distance = np.linalg.norm(new_abs - old_abs, axis=1)
         self.episode_distance += step_distance
@@ -206,13 +248,15 @@ class Bebop2WaypointEnv(VecEnv):
         self.episode_action_count += actions.shape[1]
         self.episode_waypoints += waypoint_reached.astype(np.int64)
 
-        self.target_waypoints[waypoint_reached] += 1
+        continue_to_next_waypoint = waypoint_reached & (not self.terminate_on_waypoint)
+        self.target_waypoints[continue_to_next_waypoint] += 1
         self.target_waypoints %= self.num_waypoints
 
-        # Recenter the 19-state vector relative to the new target waypoint.
-        if np.any(waypoint_reached):
+        # Recenter the 19-state vector relative to the new target waypoint only
+        # for continuous square rollouts. Training episodes end at the reached point.
+        if np.any(continue_to_next_waypoint):
             updated_targets = self._target_positions().astype(np.float64)
-            for idx in np.where(waypoint_reached)[0]:
+            for idx in np.where(continue_to_next_waypoint)[0]:
                 relative_world = new_world[idx].copy()
                 relative_world[0:3] = new_abs[idx] - updated_targets[idx]
                 new_states[idx] = world_to_body_state(relative_world)
@@ -226,13 +270,20 @@ class Bebop2WaypointEnv(VecEnv):
         rewards[ground_collision] = -10.0
         rewards[out_of_bounds] = -10.0
         dones = ground_collision | out_of_bounds | max_steps_reached
+        if self.terminate_on_waypoint:
+            dones |= waypoint_reached
 
         infos = [{} for _ in range(self.num_envs)]
         for idx in range(self.num_envs):
             if dones[idx]:
                 metric_steps = max(int(self.step_counts[idx]), 1)
                 action_count = max(int(self.episode_action_count[idx]), 1)
-                infos[idx]["terminal_observation"] = new_states[idx].astype(np.float32)
+                terminal_state = new_states[idx:idx + 1].astype(np.float32)
+                infos[idx]["terminal_observation"] = (
+                    self._normalize_states(terminal_state)[0]
+                    if self.normalize_observations
+                    else terminal_state[0]
+                )
                 infos[idx]["TimeLimit.time"] = int(self.step_counts[idx])
                 infos[idx]["TimeLimit.truncated"] = bool(max_steps_reached[idx])
                 infos[idx]["distance_travelled"] = float(self.episode_distance[idx])
@@ -252,7 +303,7 @@ class Bebop2WaypointEnv(VecEnv):
         self.states = new_states.astype(np.float32)
         self.prev_derivs = new_derivs
         self.reset_(dones)
-        return self.states, rewards.astype(np.float32), dones, infos
+        return self._observations(), rewards.astype(np.float32), dones, infos
 
     def close(self):
         pass

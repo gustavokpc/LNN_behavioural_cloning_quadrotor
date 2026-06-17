@@ -137,6 +137,7 @@ class BCInitializedActorCriticPolicy(LogStdClampMixin, ActorCriticPolicy):
     ):
         kwargs.setdefault("features_extractor_class", FlattenExtractor)
         kwargs.setdefault("ortho_init", False)
+        kwargs.setdefault("log_std_init", -3.0)
         self.bc_config_path = bc_config_path
         self.bc_checkpoint_path = bc_checkpoint_path
         self.project_root = project_root

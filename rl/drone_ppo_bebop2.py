@@ -41,7 +41,15 @@ def _state_to_absolute_position(state: np.ndarray, target: np.ndarray) -> np.nda
     return target + body_to_world_state(state)[0:3]
 
 
-def make_env(args: argparse.Namespace, num_envs: int, seed: int | None = None):
+def make_env(
+    args: argparse.Namespace,
+    num_envs: int,
+    seed: int | None = None,
+    terminate_on_waypoint: bool | None = None,
+):
+    if terminate_on_waypoint is None:
+        terminate_on_waypoint = True
+    normalize_observations = bool(args.normalize_observations and args.policy_type in {"ppo", "recurrent_ppo"})
     env_kwargs = dict(
         num_envs=num_envs,
         waypoint_radius=args.waypoint_radius,
@@ -50,6 +58,9 @@ def make_env(args: argparse.Namespace, num_envs: int, seed: int | None = None):
         integration_method=args.integration_method,
         implicit_iters=args.implicit_iters,
         initialize_at_random_waypoints=args.initialize_at_random_waypoints,
+        terminate_on_waypoint=terminate_on_waypoint,
+        normalize_observations=normalize_observations,
+        randomize_external_moments=args.randomize_external_moments,
         seed=seed,
     )
     if args.policy_type == "residual_ppo":
@@ -120,7 +131,7 @@ def train(args: argparse.Namespace) -> None:
 
 
 def _collect_render_episode(model, args: argparse.Namespace):
-    env = make_env(args, num_envs=1, seed=args.seed)
+    env = make_env(args, num_envs=1, seed=args.seed, terminate_on_waypoint=False)
     obs = env.reset()
     state = None
     episode_start = np.ones((env.num_envs,), dtype=bool)
@@ -144,7 +155,8 @@ def _collect_render_episode(model, args: argparse.Namespace):
         actions_history.append(env.actions[0].astype(np.float64))
         targets.append(target.copy())
         rewards.append(float(reward[0]))
-        episode_start = done
+        reached_waypoint = bool(infos[0].get("waypoint_reached", False))
+        episode_start = done | (args.reset_recurrent_at_waypoint and np.asarray([reached_waypoint], dtype=bool))
         if bool(done[0]):
             break
 
@@ -242,20 +254,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-envs", type=int, default=32)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--cell-size", type=int, default=64)
-    parser.add_argument("--learning-rate", type=float, default=3e-4)
-    parser.add_argument("--max-log-std", type=float, default=1.0)
+    parser.add_argument("--learning-rate", type=float, default=1e-5)
+    parser.add_argument("--max-log-std", type=float, default=-1.5)
     parser.add_argument("--rollout-fragment-length", type=int, default=512)
     parser.add_argument("--batch-size", type=int, default=1024)
     parser.add_argument("--gamma", type=float, default=0.999)
     parser.add_argument("--lam", type=float, default=0.95)
-    parser.add_argument("--clip-param", type=float, default=0.2)
-    parser.add_argument("--entropy-coeff", type=float, default=0.01)
+    parser.add_argument("--clip-param", type=float, default=0.05)
+    parser.add_argument("--entropy-coeff", type=float, default=0.0)
     parser.add_argument("--vf-coeff", type=float, default=0.5)
     parser.add_argument("--total-timesteps", type=int, default=1_000_000)
     parser.add_argument("--checkpoint-freq", type=int, default=100_000)
     parser.add_argument("--tensorboard-log", type=str, default=str(RL_ROOT / "runs" / "bebop2_waypoints"))
     parser.add_argument("--device", type=str, default="auto")
-    parser.add_argument("--n-epochs", type=int, default=10)
+    parser.add_argument("--n-epochs", type=int, default=3)
     parser.add_argument("--cfc-timespan", type=float, default=0.01)
     parser.add_argument("--use-flatten-features", type=bool, default=True)
     parser.add_argument("--policy-type", choices=("ppo", "recurrent_ppo", "bc_ppo", "residual_ppo"), default="recurrent_ppo")
@@ -278,13 +290,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--integration-method", default="rk4")
     parser.add_argument("--implicit-iters", type=int, default=1)
     parser.add_argument("--initialize-at-random-waypoints", action="store_true")
+    parser.add_argument("--normalize-observations", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--randomize-external-moments", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--render", action="store_true")
     parser.add_argument("--render-steps", type=int, default=2000)
     parser.add_argument("--render-episodes", type=int, default=1)
+    parser.add_argument("--reset-recurrent-at-waypoint", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--simultaneous", action="store_true")
     parser.add_argument("--record", action="store_true")
     parser.add_argument("--output", default=str(RL_ROOT / "runs" / "bebop2_waypoints_rollout.mp4"))
     parser.add_argument("--auto-play", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--log-std-init", type=float, default=-3.0)
     return parser.parse_args()
 
 
@@ -296,6 +312,7 @@ def resolve_bebop2_algorithm(args):
             project_root=PROJECT_ROOT,
             value_hidden_dim=args.bc_value_hidden_dim,
             max_log_std=args.max_log_std,
+            log_std_init=args.log_std_init,
         )
         return PPO, BCInitializedActorCriticPolicy, policy_kwargs
     if args.policy_type == "residual_ppo":
