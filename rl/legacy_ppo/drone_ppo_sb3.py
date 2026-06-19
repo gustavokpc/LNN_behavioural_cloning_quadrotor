@@ -487,7 +487,7 @@ def resolve_algorithm(args) -> tuple[type[PPO] | type[RecurrentPPO], type[ActorC
         policy_kwargs = dict(
             **common_policy_kwargs,
             shared_lstm=False,
-            enable_critic_lstm=True,
+            enable_critic_lstm=False,
             lstm_hidden_size=args.cell_size,
             cfc_timespan=args.cfc_timespan,
             cfc_kwargs=shared_cfc_kwargs,

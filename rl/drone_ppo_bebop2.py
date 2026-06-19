@@ -23,7 +23,9 @@ from stable_baselines3.common.vec_env import VecMonitor
 from stable_baselines3 import PPO
 
 from .bc_policy import BCInitializedActorCriticPolicy
+from .envs.bebop2_figure8_gates_env import Bebop2Figure8GatesEnv
 from .envs.bebop2_waypoints_env import DEFAULT_SQUARE_WAYPOINTS, Bebop2WaypointEnv, ResidualBebop2WaypointEnv
+from .legacy_ppo.quadcopter_animation import animation as legacy_animation
 from .legacy_ppo.drone_ppo_sb3 import (
     GradientEpisodePrintCallback,
     attach_gradient_logger,
@@ -37,6 +39,10 @@ RL_ROOT = Path(__file__).resolve().parent
 PROJECT_ROOT = RL_ROOT.parent
 
 
+def _track_artifact_name(track: str) -> str:
+    return "bebop2_waypoints" if track == "square_waypoints" else track
+
+
 def _state_to_absolute_position(state: np.ndarray, target: np.ndarray) -> np.ndarray:
     return target + body_to_world_state(state)[0:3]
 
@@ -47,6 +53,30 @@ def make_env(
     seed: int | None = None,
     terminate_on_waypoint: bool | None = None,
 ):
+    if args.track == "figure8_gates":
+        if args.policy_type in {"bc_ppo", "residual_ppo"}:
+            raise ValueError("--track figure8_gates uses legacy-style observations; choose --policy-type ppo or recurrent_ppo.")
+        return Bebop2Figure8GatesEnv(
+            num_envs=num_envs,
+            gates_ahead=args.gates_ahead,
+            gate_size=args.gate_size,
+            dt=args.dt,
+            max_steps=args.max_steps,
+            integration_method=args.integration_method,
+            implicit_iters=args.implicit_iters,
+            initialize_at_random_gates=args.initialize_at_random_gates,
+            initialize_uniform=args.initialize_uniform,
+            num_state_history=args.num_state_history,
+            num_action_history=args.num_action_history,
+            history_step_size=args.history_step_size,
+            param_input=args.param_input,
+            param_input_noise=args.param_input_noise,
+            low_obs=args.low_obs,
+            no_vel=args.no_vel,
+            no_ang_vel=args.no_ang_vel,
+            randomize_external_moments=args.randomize_external_moments,
+            seed=seed,
+        )
     if terminate_on_waypoint is None:
         terminate_on_waypoint = True
     normalize_observations = bool(args.normalize_observations and args.policy_type in {"ppo", "recurrent_ppo"})
@@ -78,7 +108,8 @@ def make_env(
 def train(args: argparse.Namespace) -> None:
     algo_cls, policy_class, policy_kwargs = resolve_bebop2_algorithm(args)
     algo_tag = args.policy_type
-    ckpt_dir = RL_ROOT / "checkpoints" / "bebop2_waypoints" / algo_tag
+    track_artifact = _track_artifact_name(args.track)
+    ckpt_dir = RL_ROOT / "checkpoints" / track_artifact / algo_tag
     ckpt_dir.mkdir(parents=True, exist_ok=True)
 
     train_env = make_env(args, num_envs=args.num_envs, seed=args.seed)
@@ -113,7 +144,7 @@ def train(args: argparse.Namespace) -> None:
     checkpoint_cb = CheckpointCallback(
         save_freq=args.checkpoint_freq,
         save_path=str(ckpt_dir),
-        name_prefix=f"{algo_tag}_bebop2_waypoints",
+        name_prefix=f"{algo_tag}_{track_artifact}",
     )
     attach_gradient_logger(model.policy)
     grad_cb = GradientEpisodePrintCallback()
@@ -124,7 +155,7 @@ def train(args: argparse.Namespace) -> None:
         callback=[checkpoint_cb, grad_cb],
         progress_bar=True,
     )
-    model.save(ckpt_dir / f"{algo_tag}_bebop2_waypoints")
+    model.save(ckpt_dir / f"{algo_tag}_{track_artifact}")
     env.close()
     elapsed = (time.time() - start) / 3600
     print(f"Finished training {args.total_timesteps:,} steps in {elapsed:0.2f}h. Latest checkpoint saved to {ckpt_dir}.")
@@ -180,6 +211,44 @@ def render(args: argparse.Namespace) -> None:
         raise ValueError("--render requires --cont pointing to a trained SB3 checkpoint.")
 
     algo_cls, policy_class, _ = resolve_bebop2_algorithm(args)
+    if args.track == "figure8_gates":
+        env = make_env(args, num_envs=1, seed=args.seed)
+        model = algo_cls.load(
+            args.cont,
+            env=env,
+            device=args.device,
+            custom_objects={"policy_class": policy_class},
+        )
+        obs = env.reset()
+        state = None
+        episode_start = np.ones((env.num_envs,), dtype=bool)
+
+        def run():
+            nonlocal obs, state, episode_start
+            actions, state = model.predict(
+                obs,
+                state=state,
+                episode_start=episode_start,
+                deterministic=True,
+            )
+            obs, _, dones, _ = env.step(actions)
+            episode_start = dones
+            if dones.any():
+                state = None
+            return env.render()
+
+        legacy_animation.view(
+            run,
+            gate_pos=env.gate_pos,
+            gate_yaw=env.gate_yaw,
+            fps=1 / env.dt,
+            record_steps=args.render_steps if args.record else 0,
+            record_file=args.output,
+            show_window=args.auto_play or not args.record,
+        )
+        env.close()
+        return
+
     load_env = make_env(args, num_envs=1, seed=args.seed)
     model = algo_cls.load(
         args.cont,
@@ -265,7 +334,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--vf-coeff", type=float, default=0.5)
     parser.add_argument("--total-timesteps", type=int, default=1_000_000)
     parser.add_argument("--checkpoint-freq", type=int, default=100_000)
-    parser.add_argument("--tensorboard-log", type=str, default=str(RL_ROOT / "runs" / "bebop2_waypoints"))
+    parser.add_argument("--tensorboard-log", type=str, default="")
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--n-epochs", type=int, default=3)
     parser.add_argument("--cfc-timespan", type=float, default=0.01)
@@ -286,10 +355,23 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cont", type=str, default="")
     parser.add_argument("--dt", type=float, default=0.01)
     parser.add_argument("--max-steps", type=int, default=6000)
+    parser.add_argument("--track", choices=("square_waypoints", "figure8_gates"), default="square_waypoints")
     parser.add_argument("--waypoint-radius", type=float, default=0.2)
+    parser.add_argument("--gate-size", type=float, default=1.5)
+    parser.add_argument("--gates-ahead", type=int, default=1)
     parser.add_argument("--integration-method", default="rk4")
     parser.add_argument("--implicit-iters", type=int, default=1)
     parser.add_argument("--initialize-at-random-waypoints", action="store_true")
+    parser.add_argument("--initialize-at-random-gates", action="store_true")
+    parser.add_argument("--initialize-uniform", action="store_true")
+    parser.add_argument("--num-state-history", type=int, default=0)
+    parser.add_argument("--num-action-history", type=int, default=0)
+    parser.add_argument("--history-step-size", type=int, default=1)
+    parser.add_argument("--low-obs", action="store_true")
+    parser.add_argument("--no-vel", action="store_true")
+    parser.add_argument("--no-ang-vel", action="store_true")
+    parser.add_argument("--param-input", action="store_true")
+    parser.add_argument("--param-input-noise", type=float, default=0.0)
     parser.add_argument("--normalize-observations", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--randomize-external-moments", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--render", action="store_true")
@@ -298,10 +380,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--reset-recurrent-at-waypoint", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--simultaneous", action="store_true")
     parser.add_argument("--record", action="store_true")
-    parser.add_argument("--output", default=str(RL_ROOT / "runs" / "bebop2_waypoints_rollout.mp4"))
+    parser.add_argument("--output", default="")
     parser.add_argument("--auto-play", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--log-std-init", type=float, default=-3.0)
-    return parser.parse_args()
+    args = parser.parse_args()
+    track_artifact = _track_artifact_name(args.track)
+    if not args.tensorboard_log:
+        args.tensorboard_log = str(RL_ROOT / "runs" / track_artifact)
+    if not args.output:
+        args.output = str(RL_ROOT / "runs" / f"{track_artifact}_rollout.mp4")
+    if args.track == "figure8_gates" and args.policy_type in {"bc_ppo", "residual_ppo"}:
+        raise ValueError("--track figure8_gates uses legacy-style observations; choose --policy-type ppo or recurrent_ppo.")
+    return args
 
 
 def resolve_bebop2_algorithm(args):
