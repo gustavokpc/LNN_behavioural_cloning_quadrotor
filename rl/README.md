@@ -207,6 +207,56 @@ Record the rollout instead of only opening the interactive viewer:
   --output /tmp/bebop2_ppo_rollout.mp4
 ```
 
+## Bebop2 Figure-8 Gates Environment
+
+The same trainer also has a legacy-style figure-8 gates mode:
+
+```bash
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
+  --track figure8_gates \
+  --policy-type recurrent_ppo \
+  --num-envs 32 \
+  --total-timesteps 1000000
+```
+
+This mode uses [envs/bebop2_figure8_gates_env.py](envs/bebop2_figure8_gates_env.py), which keeps the legacy gate task contract while replacing the old symbolic dynamics with `quadrotor_sim_matlab`:
+
+- figure-8 `gate_pos` and `gate_yaw` from the legacy PPO environment;
+- observation layout matching the legacy gate input: 16-state relative-to-gate core plus future gate features/history options;
+- action space in the legacy `[-1, 1]` convention;
+- internal conversion to Bebop2 motor commands in `[0, 1]`;
+- Bebop2 19-state integration through `integrate_state(...)` after selecting `quadrotor_sim_matlab`;
+- gate-plane pass/collision logic, ground collision, out-of-bounds checks, and rollout metrics.
+
+Because `figure8_gates` uses the legacy-style observation vector instead of the 19-value supervised-learning input, use `--policy-type ppo` or `--policy-type recurrent_ppo`. The `bc_ppo` and `residual_ppo` modes remain available for the waypoint environment, but are intentionally rejected for `figure8_gates`.
+
+Small smoke run:
+
+```bash
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
+  --track figure8_gates \
+  --policy-type ppo \
+  --num-envs 2 \
+  --rollout-fragment-length 8 \
+  --batch-size 16 \
+  --total-timesteps 16 \
+  --checkpoint-freq 16 \
+  --max-steps 20 \
+  --device cpu
+```
+
+Checkpoints are saved under `rl/checkpoints/figure8_gates/<policy-type>/`, and TensorBoard logs default to `rl/runs/figure8_gates/`.
+
+Render a trained figure-8 checkpoint with the legacy gate viewer:
+
+```bash
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
+  --track figure8_gates \
+  --render \
+  --cont LNN_behavioural_cloning_quadrotor/rl/checkpoints/figure8_gates/recurrent_ppo/recurrent_ppo_figure8_gates.zip \
+  --policy-type recurrent_ppo
+```
+
 ### Trainer Options
 
 | Option | Default | Meaning |
@@ -238,10 +288,15 @@ Record the rollout instead of only opening the interactive viewer:
 | `--cont` | empty | Continue from an existing SB3 `.zip` checkpoint. |
 | `--dt` | `0.01` | Environment timestep. |
 | `--max-steps` | `6000` | Maximum steps per episode. |
+| `--track` | `square_waypoints` | `square_waypoints` keeps the current Bebop2 waypoint trainer; `figure8_gates` uses legacy-style figure-8 gates with Bebop2 dynamics. |
 | `--waypoint-radius` | `0.2` | Distance threshold to mark a waypoint reached. |
+| `--gate-size` | `1.5` | Gate pass/collision box size for `figure8_gates`. |
+| `--gates-ahead` | `1` | Number of future gates appended to the legacy-style observation in `figure8_gates`. |
 | `--integration-method` | `rk4` | Dynamics integration method. |
 | `--implicit-iters` | `1` | Iterations for implicit integration. |
 | `--initialize-at-random-waypoints` | disabled | Reset episodes near random waypoints instead of the start point. |
+| `--initialize-at-random-gates` | disabled | Reset episodes near random gates in `figure8_gates`. |
+| `--initialize-uniform` | disabled | Reset uniformly over the track area and target the nearest valid gate in `figure8_gates`. |
 | `--render` | disabled | Run visualization/evaluation instead of training. |
 | `--render-steps` | `2000` | Maximum steps collected per rendered attempt. |
 | `--render-episodes` | `1` | Number of attempts to visualize. |
