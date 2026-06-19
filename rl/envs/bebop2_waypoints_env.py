@@ -168,8 +168,9 @@ class Bebop2WaypointEnv(VecEnv):
             absolute_positions = target + offset
         else:
             self.target_waypoints[dones] = 0
-            absolute_positions = self.start_pos + np.random.uniform(-0.25, 0.25, size=(num_reset, 3))
-            absolute_positions[:, 2] = self.start_pos[2] + np.random.uniform(-0.15, 0.15, size=num_reset)
+            absolute_positions = self.start_pos + np.random.uniform(-0.5, 0.5, size=(num_reset, 3))
+            # absolute_positions[:, 2] = self.start_pos[2] + np.random.uniform(-0.15, 0.15, size=num_reset)
+            absolute_positions[:, :2] = self.start_pos[:2] + np.random.uniform(-3, 3, size=(num_reset, 2))
 
         targets = self._target_positions()[dones]
         external_moments = self._sample_external_moments(num_reset)
@@ -225,8 +226,8 @@ class Bebop2WaypointEnv(VecEnv):
         waypoint_reached = d2w_new < self.waypoint_radius
 
         speed = np.linalg.norm(new_states[:, 3:6], axis=1)
-        rate_penalty = 0.001 * np.linalg.norm(new_states[:, 9:12], axis=1)
-        # angle_penalty = 0.0 * np.linalg.norm(new_states[:, 6:8], axis=1)
+        rate_penalty = np.linalg.norm(new_states[:, 9:12], axis=1)
+        angle_penalty = np.linalg.norm(new_states[:, 6:8], axis=1)
         # action_penalty = 0.0 * np.linalg.norm(actions, axis=1)
         # action_penalty_delta = 0.001 * np.linalg.norm(actions - self.prev_actions, axis=1)
         progress_reward = d2w_old - d2w_new
@@ -235,10 +236,16 @@ class Bebop2WaypointEnv(VecEnv):
         # progress_reward[progress_reward > max_speed * self.dt] = max_speed * self.dt
 
         # rewards = progress_reward - rate_penalty - angle_penalty
-        rewards = progress_reward - rate_penalty  # - action_penalty - action_penalty_delta
+        rewards = progress_reward - 0.001 * rate_penalty  # - action_penalty - action_penalty_delta
 
         # Waypoint reward + dist penalty
-        rewards[waypoint_reached] = 1.0 # CHANGED HERE, WAS COMMENTED BEFORE SO WATCH OUT ----------
+        in_hover_region = (
+            (d2w_new < self.waypoint_radius) &
+            (angle_penalty < 0.3) &
+            (speed < 0.25)
+        )
+        # rewards[waypoint_reached] = 1.0 # CHANGED HERE, WAS COMMENTED BEFORE SO WATCH OUT ----------
+        rewards[in_hover_region] = 1.0 # CHANGED HERE, WAS COMMENTED BEFORE SO WATCH OUT ----------
 
         step_distance = np.linalg.norm(new_abs - old_abs, axis=1)
         self.episode_distance += step_distance

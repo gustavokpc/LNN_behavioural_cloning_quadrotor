@@ -1,0 +1,28 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Debug PPO Bebop2",
+      "type": "debugpy",
+      "request": "launch",
+      "python": "/home/schemin/miniconda3/envs/LNN_with_RL/bin/python3",
+      "module": "LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2",
+      "args": [
+        "--total-timesteps=100_000_000",
+        "--learning-rate=1e-4",
+        "--num-envs=64",
+        "--rollout-fragment-length=256",
+        "--batch-size=4096",
+        "--gamma=0.99",
+        "--clip-param=0.1",
+        "--entropy-coeff=0.02",
+        "--n-epochs=6",
+        "--max-steps=600"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "cwd": "${workspaceFolder}/..",
+      "subProcess": true
+    }
+  ]
+}
