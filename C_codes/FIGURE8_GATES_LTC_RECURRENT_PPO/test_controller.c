@@ -2,7 +2,7 @@
 #include "nn_cfc_operations.h"
 
 int main(void) {
-    float state[NUM_STATES] = {0.3f,-0.2f,0.1f,0.05f,-0.03f,0.02f,0.01f,-0.02f,0.03f,0.1f,-0.1f,0.05f,0.0f,0.0f,0.0f,5500.0f,5600.0f,5700.0f,5800.0f};
+    float state[NUM_STATES] = {0};
     float control[NUM_CONTROLS];
     nn_cfc_reset();
     nn_cfc_control(state, control);

@@ -60,170 +60,79 @@ Optional plot:
 
 ### 3. Simulations
 
-Recommended Bebop2/Gazebo square simulation with the trained CfC C export:
+Most Bebop2 checks should start with the C-exported square simulator. It runs the supervised-learning controller from `C_codes/` while changing only the simulated plant through `--dynamics-model`.
+
+For the current CfC-on-Bebop2 action plot:
 
 ```bash
 .venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_gazebo_square_C \
   --model CFC \
   --dynamics-model quadrotor_sim_matlab \
-  --time-simulation 60 \
-  --dist-error 0.1 \
-  --dt 0.01 \
-  --integration-method rk4 \
-  --implicit-iters 1 \
-  --start-waypoint-index 3 \
-  --start-alt 1.0 \
-  --waypoint-alt 1.5 \
-  --auto-play
+  --time-simulation 20 \
+  --dist-error 0.001 \
+  --plot-actions \
+  --no-animation
 ```
 
-The same defaults are already built into the command-line parser, so this shorter command is equivalent for the square simulation:
+Outputs are saved in [simulators/runs](simulators/runs):
+
+- `cfc_sl_bebop2_actions.png`
+- `cfc_sl_bebop2_actions.csv`
+
+The plot format matches the RL action plots: four stacked motor traces in RPM, plus CSV columns for motor RPM and RPM deltas. You do not need to set `MPLCONFIGDIR`; the simulator sets Matplotlib's cache/config directory to `simulators/runs/.matplotlib` before importing Matplotlib.
+
+For an animated rollout with the same simulator:
 
 ```bash
 .venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_gazebo_square_C
 ```
 
-The square simulation uses the four `NN_SQ_*` points directly in the script:
-`(2.0, 1.5, 1.5)`, `(2.0, -1.5, 1.5)`, `(-2.0, -1.5, 1.5)`, `(-2.0, 1.5, 1.5)`.
-The figure-eight version still reads `RL_F8_1..8` from `rl_cfc_waypoints_square.xml`:
+Useful options:
 
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_gazebo_figure8_C
-```
-
-Useful options for `Simulator_gazebo_square_C` and `Simulator_gazebo_figure8_C`:
-
-| Option | Default if omitted | Choices / meaning |
+| Option | Default | Meaning |
 | --- | --- | --- |
-| `--model` | `CFC` | `MLP`, `LTC`, `RNN`, `CONV_CFC_DEFAULT`, `CFC`, `CFC_PURE`, `CTRNN`, `GRU`, `LSTM`, `NCP_CFC` |
-| `--dynamics-model` | `quadrotor_sim_matlab` | `quadrotor_sim_original` for the original reduced model, `quadrotor_sim_matlab` for the Bebop2 MATLAB force/moment model |
-| `--time-simulation` | `60.0` | Maximum simulated time in seconds |
-| `--dist-error` | `0.1` | Waypoint switching distance in meters |
-| `--dt` | `0.01` | Simulation timestep in seconds |
-| `--integration-method` | `rk4` | Integration method passed to the rollout code |
-| `--implicit-iters` | `1` | Iterations used by implicit integration methods |
-| `--start-waypoint-index` | `3` for square, `0` for figure-eight | First waypoint index in the route |
-| `--start-alt` | `1.0` | Initial `STDBY` altitude in meters |
-| `--waypoint-alt` | `1.5` | Target waypoint altitude in meters |
-| `--auto-play` / `--no-auto-play` | `--auto-play` | Start the animation automatically or wait for manual play |
-| `--reset-each-waypoint` | disabled | Reset recurrent/CfC controller memory at each waypoint |
-| `--no-animation` | disabled | Run metrics without opening the animation |
-| `--record --output <file.mp4>` | disabled, `gazebo_square_cfc.mp4` or `gazebo_figure8_cfc.mp4` | Save the animation instead of only displaying it |
-| `--model-config <path>` | matching YAML from `MODEL_PRESETS` | Override the config YAML for the selected model |
-| `--c-model-dir <path>` | matching folder from `MODEL_PRESETS` | Override the exported C controller folder |
+| `--model` | `CFC` | C export to run: `MLP`, `LTC`, `RNN`, `CFC`, `CFC_PURE`, `GRU`, `LSTM`, `NCP_CFC`, etc. |
+| `--dynamics-model` | `quadrotor_sim_matlab` | Bebop2 MATLAB force/moment model. Use `quadrotor_sim_original` only for the old reduced model. |
+| `--time-simulation` | `60.0` | Maximum simulated time in seconds. |
+| `--dist-error` | `0.1` | Waypoint switch radius in meters. |
+| `--plot-actions` | disabled | Save RL-style motor plots and CSV under `simulators/runs`. |
+| `--no-animation` | disabled | Run metrics/plots without opening the OpenCV animation window. |
+| `--record --output <file.mp4>` | disabled | Save the animation video. |
 
-Dynamics equations live in [utils/dynamics_models](utils/dynamics_models). The neural-network normalization limits stay fixed to the training data; only the simulated plant equation changes when you switch `--dynamics-model`.
+The square route is hard-coded as four ENU waypoints:
+`(2.0, 1.5, 1.5)`, `(2.0, -1.5, 1.5)`, `(-2.0, -1.5, 1.5)`, `(-2.0, 1.5, 1.5)`.
 
-Other closed-loop simulators use [simulator_config.yaml](simulator_config.yaml) for `model_path`, horizon, thresholds, and dataset paths.
+Other simulator entrypoints still exist for older workflows:
 
-Python/PyTorch controllers:
+| Use case | Python/PyTorch | C export |
+| --- | --- | --- |
+| Dataset start state | `Simulator_start_dataset` | `Simulator_start_dataset_C` |
+| Random starts | `Simulator_random_start` | `Simulator_random_start_C` |
+| Race/gate rollout | `Simulator_race_drone` | `Simulator_race_drone_C` |
+| Dataset rollout visualizer | `visualize_rollout` | `visualize_rollout_C` |
+| Figure-eight C route | n/a | `Simulator_gazebo_figure8_C` |
 
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_start_dataset
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_random_start
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_race_drone
-```
-
-C-exported controllers:
+Example:
 
 ```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_start_dataset_C
 .venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_random_start_C
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_race_drone_C
 ```
 
-To force a specific C export in those C-backed simulators:
-
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_random_start_C \
-  --c-model-dir LNN_behavioural_cloning_quadrotor/C_codes/GRU
-```
-
-### Visualization
-
-A helper script is available to animate one or more dataset-based rollouts in the same window.
-
-PyTorch controller visualization:
-
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.visualize_rollout \
-  --trajectory 0 --trajectories 4 --simultaneous --draw-path
-```
-
-C-exported controller visualization:
-
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.visualize_rollout_C \
-  --trajectory 0 --trajectories 4 --simultaneous --draw-path
-```
-
-This will:
-
-- simulate trajectories `0..3`
-- draw them together in one animation
-- show the path of each drone
-
-If you want to save the animation instead of opening a window:
-
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.visualize_rollout \
-  --trajectory 0 --trajectories 4 --record --output /tmp/rollout.mp4
-```
-
-For the C version:
-
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.visualize_rollout_C \
-  --trajectory 0 --trajectories 4 --record --output /tmp/rollout_c.mp4
-```
-
-The C visualizer uses `simulator_config.yaml -> model_path` to pick a folder in `C_codes`. To force a specific export:
-
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.visualize_rollout_C \
-  --c-model-dir LNN_behavioural_cloning_quadrotor/C_codes/CFC \
-  --trajectory 0 --trajectories 4 --simultaneous --draw-path
-```
+These older scripts use [simulator_config.yaml](simulator_config.yaml) unless they expose a CLI override. The C visualizer and C simulators can usually be pointed at a different export with `--c-model-dir LNN_behavioural_cloning_quadrotor/C_codes/<MODEL>`.
 
 ### Benchmarks
 
-There are two benchmark styles.
+Benchmark scripts are available, but they are separate from normal simulation:
 
-`simulators/benchmark_python_vs_c_ctypes.py` keeps the simulator loop in Python and calls the C controller through `ctypes`. This is useful for checking integration overhead, but it is not representative of firmware C:
+- `benchmark_python_vs_c_ctypes.py` compares PyTorch vs C-controller calls while keeping the simulator loop in Python.
+- `benchmark_python_only.py` measures the Python/PyTorch simulator path.
+- `C_codes/MLP/benchmark_full_c.c` is the standalone full-C benchmark currently available for MLP.
 
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.benchmark_python_vs_c_ctypes --runs 1000
-```
-
-For a faster exploratory run:
+Example:
 
 ```bash
 .venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.benchmark_python_vs_c_ctypes \
   --runs 100 --horizon-steps 100
-```
-
-The benchmark measures the complete Python simulation loop. The C path still crosses the Python/C `ctypes` boundary once per timestep, so this is not the same as running the whole controller and dynamics loop in firmware C.
-
-For a cleaner comparison, run the PyTorch/Python benchmark and the full-C benchmark separately. The full-C benchmark currently exists for the MLP export:
-
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.benchmark_python_only \
-  --runs 1000 --horizon-steps 400
-
-gcc -std=c99 -O3 -Wall -Wextra \
-  LNN_behavioural_cloning_quadrotor/C_codes/MLP/benchmark_full_c.c \
-  LNN_behavioural_cloning_quadrotor/C_codes/MLP/nn_operations.c \
-  LNN_behavioural_cloning_quadrotor/C_codes/MLP/nn_parameters.c \
-  -lm -o /tmp/benchmark_full_c_mlp
-
-/tmp/benchmark_full_c_mlp 1000 400 0.01
-```
-
-On the MLP benchmark with 1000 rollouts and 400 steps each, the measured times were:
-
-```text
-PyTorch/Python: 385.625678 s total, 0.000964064 s/step
-Full C:           5.176626 s total, 0.000012942 s/step
 ```
 
 ### C Controller Exports

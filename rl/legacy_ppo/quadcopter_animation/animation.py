@@ -57,6 +57,32 @@ record=False
 def nothing(x):
     pass
 
+def key_matches(key, char):
+    return key in (ord(char.lower()), ord(char.upper()))
+
+def create_animation_window():
+    cv2.namedWindow('animation', cv2.WINDOW_NORMAL)
+    cv2.resizeWindow('animation', width, height)
+
+def set_fullscreen(fullscreen):
+    cv2.setWindowProperty(
+        'animation',
+        cv2.WND_PROP_FULLSCREEN,
+        cv2.WINDOW_FULLSCREEN if fullscreen else cv2.WINDOW_NORMAL
+    )
+
+def draw_keyboard_help(frame, shortcuts, x=10, y=20):
+    for idx, text in enumerate(shortcuts):
+        cv2.putText(
+            frame,
+            text,
+            (x, y + 20 * idx),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (0, 0, 0),
+            1
+        )
+
 def get_drone_state_zero():
     return {
         'x': 0,
@@ -78,10 +104,13 @@ def view(get_drone_state=get_drone_state_zero,
          record_steps=0,
          record_file='output.mp4',
          show_window=True,
+         draw_trajectory=True,
+         trajectory_reset_distance=1.0,
          ):
     follow=False
     record=False
     draw_forces=True
+    fullscreen=False
     
     # target point for the drone
     target = graphics.create_path(np.array([[0,0,0],[0,0,0.01]]))
@@ -101,11 +130,12 @@ def view(get_drone_state=get_drone_state_zero,
 
     # window 
     if show_window:
-        cv2.namedWindow('animation')
+        create_animation_window()
         cv2.setMouseCallback('animation', cam.mouse_control)
     
     # time tracking    
     last_time = time.time()
+    trajectory_points = []
 
     while True:
         # keep track of steps
@@ -129,6 +159,14 @@ def view(get_drone_state=get_drone_state_zero,
         pos = np.stack([state['x'], state['y'], state['z']]).T
         ori = np.stack([state['phi'], state['theta'], state['psi']]).T
         u = np.stack([state['u1'], state['u2'], state['u3'], state['u4']]).T
+        pos_rows = np.asarray(pos, dtype=float).reshape(-1, 3)
+        current_pos = pos_rows[0].copy()
+        if (
+            trajectory_points
+            and np.linalg.norm(current_pos - trajectory_points[-1]) > trajectory_reset_distance
+        ):
+            trajectory_points = []
+        trajectory_points.append(current_pos)
 
         # update camera
         if follow:
@@ -141,6 +179,11 @@ def view(get_drone_state=get_drone_state_zero,
     
         # draw grid
         big_grid.draw(frame, cam, color=(200, 200, 200), pt=1)
+
+        # draw flown trajectory
+        if draw_trajectory and len(trajectory_points) > 1:
+            trajectory = graphics.create_path(np.array(trajectory_points))
+            trajectory.draw(frame, cam, color=(0, 180, 0), pt=3)
         
         # draw target
         if 'traj_x' in state:
@@ -187,10 +230,17 @@ def view(get_drone_state=get_drone_state_zero,
             gate.draw(frame, cam, color=(0,140,255), pt=4)
             # gate_collision_box.draw(frame, cam, color=(200,200,200), pt=1)
 
+        shortcuts = [
+            "P=toggle trajectory   F=follow   S=forces",
+            "R=record   M=fullscreen/window   ESC=exit",
+            "1=zoom out   2=zoom in",
+        ]
+        draw_keyboard_help(frame, shortcuts)
+
         # recording
         if record:
+            cv2.putText(frame, '[recording]', (width-115, 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0))
             out.write(frame)
-            cv2.putText(frame, '[recording]', (10, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0))
 
         # key events
         key = cv2.waitKeyEx(1)
@@ -204,11 +254,14 @@ def view(get_drone_state=get_drone_state_zero,
                 print('recording saved in ' + record_file)
             break
         # follow when f is pressed
-        elif key == ord('f'):
+        elif key_matches(key, 'f'):
             follow = not follow
         # draw forces when s is pressed
-        elif key == ord('s'):
+        elif key_matches(key, 's'):
             draw_forces = not draw_forces
+        # trajectory when p is pressed
+        elif key_matches(key, 'p'):
+            draw_trajectory = not draw_trajectory
         # zoom in with 1
         elif key == ord('1'):
             cam.zoom(1.05)
@@ -216,7 +269,7 @@ def view(get_drone_state=get_drone_state_zero,
         elif key == ord('2'):
             cam.zoom(1/1.05)
         # record when r is pressed
-        elif key == ord('r'):
+        elif key_matches(key, 'r'):
             if record:
                 print('recording ended')
                 out.release()
@@ -224,6 +277,10 @@ def view(get_drone_state=get_drone_state_zero,
             else:
                 print('recording started')
             record = not record
+        # fullscreen/windowed when m is pressed
+        elif key_matches(key, 'm'):
+            fullscreen = not fullscreen
+            set_fullscreen(fullscreen)
         
         # show
         if show_window:

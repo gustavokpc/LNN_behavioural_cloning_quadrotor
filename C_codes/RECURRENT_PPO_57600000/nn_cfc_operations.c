@@ -1,6 +1,7 @@
-#include "nn_operations.h"
+#include "nn_cfc_operations.h"
 
-static float recurrent_hidden[CFC_HIDDEN_DIM];
+static float nn_cfc_hidden[HIDDEN_SIZE];
+float nn_cfc_last_raw_control[NUM_CONTROLS];
 
 static float clip01(float x) {
     if (x < 0.0f) return 0.0f;
@@ -33,49 +34,49 @@ static void linear(const float *input, const float *weight, const float *bias,
     }
 }
 
-void nn_reset(void) {
-    for (int i = 0; i < CFC_HIDDEN_DIM; ++i) recurrent_hidden[i] = 0.0f;
+void nn_cfc_reset(void) {
+    for (int i = 0; i < HIDDEN_SIZE; ++i) nn_cfc_hidden[i] = 0.0f;
 }
 
-void nn_set_hidden(const float *hidden_state) {
-    for (int i = 0; i < CFC_HIDDEN_DIM; ++i) recurrent_hidden[i] = hidden_state[i];
+void nn_cfc_set_hidden(const float *hidden_state) {
+    for (int i = 0; i < HIDDEN_SIZE; ++i) nn_cfc_hidden[i] = hidden_state[i];
 }
 
-void nn_get_hidden(float *hidden_state) {
-    for (int i = 0; i < CFC_HIDDEN_DIM; ++i) hidden_state[i] = recurrent_hidden[i];
+void nn_cfc_get_hidden(float *hidden_state) {
+    for (int i = 0; i < HIDDEN_SIZE; ++i) hidden_state[i] = nn_cfc_hidden[i];
 }
 
-void nn_control_with_state(const float *state, float *hidden_state, float *control) {
+void nn_cfc_control_with_state(const float *state, float *hidden_state, float *control) {
     float obs[CFC_INPUT_DIM];
-    float cfc_input[CFC_INPUT_DIM + CFC_HIDDEN_DIM];
+    float cfc_input[CFC_INPUT_DIM + HIDDEN_SIZE];
     float backbone[CFC_BACKBONE_DIM];
-    float ff1[CFC_HIDDEN_DIM];
-    float ff2[CFC_HIDDEN_DIM];
-    float time_a[CFC_HIDDEN_DIM];
-    float time_b[CFC_HIDDEN_DIM];
-    float new_hidden[CFC_HIDDEN_DIM];
+    float ff1[HIDDEN_SIZE];
+    float ff2[HIDDEN_SIZE];
+    float time_a[HIDDEN_SIZE];
+    float time_b[HIDDEN_SIZE];
+    float new_hidden[HIDDEN_SIZE];
     float policy0[POLICY_HIDDEN_DIM];
     float policy2[POLICY_HIDDEN_DIM];
 
     for (int i = 0; i < CFC_INPUT_DIM; ++i) {
-        float denom = OBS_MAX[i] - OBS_MIN[i] + 1.0e-10f;
-        obs[i] = (state[i] - OBS_MIN[i]) / denom;
+        float denom = input_norm_max[i] - input_norm_min[i] + 1.0e-10f;
+        obs[i] = (state[i] - input_norm_min[i]) / denom;
         cfc_input[i] = obs[i];
     }
-    for (int i = 0; i < CFC_HIDDEN_DIM; ++i) {
+    for (int i = 0; i < HIDDEN_SIZE; ++i) {
         cfc_input[CFC_INPUT_DIM + i] = hidden_state[i];
     }
 
     linear(cfc_input, CFC_BACKBONE0_WEIGHT, CFC_BACKBONE0_BIAS,
-           CFC_INPUT_DIM + CFC_HIDDEN_DIM, CFC_BACKBONE_DIM, backbone);
+           CFC_INPUT_DIM + HIDDEN_SIZE, CFC_BACKBONE_DIM, backbone);
     for (int i = 0; i < CFC_BACKBONE_DIM; ++i) backbone[i] = lecun_tanh_f(backbone[i]);
 
-    linear(backbone, CFC_FF1_WEIGHT, CFC_FF1_BIAS, CFC_BACKBONE_DIM, CFC_HIDDEN_DIM, ff1);
-    linear(backbone, CFC_FF2_WEIGHT, CFC_FF2_BIAS, CFC_BACKBONE_DIM, CFC_HIDDEN_DIM, ff2);
-    linear(backbone, CFC_TIME_A_WEIGHT, CFC_TIME_A_BIAS, CFC_BACKBONE_DIM, CFC_HIDDEN_DIM, time_a);
-    linear(backbone, CFC_TIME_B_WEIGHT, CFC_TIME_B_BIAS, CFC_BACKBONE_DIM, CFC_HIDDEN_DIM, time_b);
+    linear(backbone, CFC_FF1_WEIGHT, CFC_FF1_BIAS, CFC_BACKBONE_DIM, HIDDEN_SIZE, ff1);
+    linear(backbone, CFC_FF2_WEIGHT, CFC_FF2_BIAS, CFC_BACKBONE_DIM, HIDDEN_SIZE, ff2);
+    linear(backbone, CFC_TIME_A_WEIGHT, CFC_TIME_A_BIAS, CFC_BACKBONE_DIM, HIDDEN_SIZE, time_a);
+    linear(backbone, CFC_TIME_B_WEIGHT, CFC_TIME_B_BIAS, CFC_BACKBONE_DIM, HIDDEN_SIZE, time_b);
 
-    for (int i = 0; i < CFC_HIDDEN_DIM; ++i) {
+    for (int i = 0; i < HIDDEN_SIZE; ++i) {
         float y1 = tanhf(ff1[i]);
         float y2 = tanhf(ff2[i]);
         float interp = sigmoid_f(time_a[i] * CFC_TIMESPAN + time_b[i]);
@@ -83,16 +84,19 @@ void nn_control_with_state(const float *state, float *hidden_state, float *contr
         hidden_state[i] = new_hidden[i];
     }
 
-    linear(hidden_state, POLICY0_WEIGHT, POLICY0_BIAS, CFC_HIDDEN_DIM, POLICY_HIDDEN_DIM, policy0);
+    linear(hidden_state, POLICY0_WEIGHT, POLICY0_BIAS, HIDDEN_SIZE, POLICY_HIDDEN_DIM, policy0);
     for (int i = 0; i < POLICY_HIDDEN_DIM; ++i) policy0[i] = tanhf(policy0[i]);
 
     linear(policy0, POLICY2_WEIGHT, POLICY2_BIAS, POLICY_HIDDEN_DIM, POLICY_HIDDEN_DIM, policy2);
     for (int i = 0; i < POLICY_HIDDEN_DIM; ++i) policy2[i] = tanhf(policy2[i]);
 
     linear(policy2, ACTION_WEIGHT, ACTION_BIAS, POLICY_HIDDEN_DIM, NUM_CONTROLS, control);
-    for (int i = 0; i < NUM_CONTROLS; ++i) control[i] = clip01(control[i]);
+    for (int i = 0; i < NUM_CONTROLS; ++i) {
+        nn_cfc_last_raw_control[i] = control[i];
+        control[i] = clip01(control[i]);
+    }
 }
 
-void nn_control(const float *state, float *control) {
-    nn_control_with_state(state, recurrent_hidden, control);
+void nn_cfc_control(const float *state, float *control) {
+    nn_cfc_control_with_state(state, nn_cfc_hidden, control);
 }

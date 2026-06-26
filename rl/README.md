@@ -96,7 +96,7 @@ Full hot-start training command with the current defaults written explicitly:
   --checkpoint-freq 100000 \
   --dt 0.01 \
   --max-steps 6000 \
-  --waypoint-radius 0.2 \
+  --dist-error 0.2 \
   --integration-method rk4 \
   --implicit-iters 1 \
   --device auto
@@ -289,7 +289,7 @@ Render a trained figure-8 checkpoint with the legacy gate viewer:
 | `--dt` | `0.01` | Environment timestep. |
 | `--max-steps` | `6000` | Maximum steps per episode. |
 | `--track` | `square_waypoints` | `square_waypoints` keeps the current Bebop2 waypoint trainer; `figure8_gates` uses legacy-style figure-8 gates with Bebop2 dynamics. |
-| `--waypoint-radius` | `0.2` | Distance threshold to mark a waypoint reached. |
+| `--dist-error` | `0.2` | Distance threshold to mark a waypoint reached. |
 | `--gate-size` | `1.5` | Gate pass/collision box size for `figure8_gates`. |
 | `--gates-ahead` | `1` | Number of future gates appended to the legacy-style observation in `figure8_gates`. |
 | `--integration-method` | `rk4` | Dynamics integration method. |

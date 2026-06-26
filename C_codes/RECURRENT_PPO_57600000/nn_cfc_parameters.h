@@ -1,19 +1,19 @@
-#ifndef NN_PARAMETERS_H
-#define NN_PARAMETERS_H
+#ifndef NN_CFC_PARAMETERS_H
+#define NN_CFC_PARAMETERS_H
 
-/* File: nn_parameters.h
+/* File: nn_cfc_parameters.h
  * Generated from: recurrent_ppo_bebop2_waypoints_57600000_steps.zip
  */
 #define NUM_STATES 19
 #define NUM_CONTROLS 4
 #define CFC_INPUT_DIM 19
-#define CFC_HIDDEN_DIM 64
+#define HIDDEN_SIZE 64
 #define CFC_BACKBONE_DIM 128
 #define POLICY_HIDDEN_DIM 64
 #define CFC_TIMESPAN 0.01f
 
-extern const float OBS_MIN[19];
-extern const float OBS_MAX[19];
+extern const float input_norm_min[19];
+extern const float input_norm_max[19];
 extern const float CFC_BACKBONE0_WEIGHT[10624];
 extern const float CFC_BACKBONE0_BIAS[128];
 extern const float CFC_FF1_WEIGHT[8192];
