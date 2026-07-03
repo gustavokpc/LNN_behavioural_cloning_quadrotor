@@ -219,16 +219,17 @@ The same trainer also has a legacy-style figure-8 gates mode:
   --total-timesteps 1000000
 ```
 
-This mode uses [envs/bebop2_figure8_gates_env.py](envs/bebop2_figure8_gates_env.py), which keeps the legacy gate task contract while replacing the old symbolic dynamics with `quadrotor_sim_matlab`:
+This mode uses [envs/bebop2_figure8_gates_env.py](envs/bebop2_figure8_gates_env.py), which keeps the legacy gate task layout while replacing the old symbolic dynamics with `quadrotor_sim_matlab`:
 
 - figure-8 `gate_pos` and `gate_yaw` from the legacy PPO environment;
 - observation layout matching the legacy gate input: 16-state relative-to-gate core plus future gate features/history options;
-- action space in the legacy `[-1, 1]` convention;
-- internal conversion to Bebop2 motor commands in `[0, 1]`;
+- configurable policy action range with `--figure8-action-range`;
+- default action space in the Bebop2/SL `[0, 1]` motor-command convention;
+- optional `neg1_1` action space for old figure-8 checkpoints trained with the legacy `[-1, 1]` convention;
 - Bebop2 19-state integration through `integrate_state(...)` after selecting `quadrotor_sim_matlab`;
 - gate-plane pass/collision logic, ground collision, out-of-bounds checks, and rollout metrics.
 
-Because `figure8_gates` uses the legacy-style observation vector instead of the 19-value supervised-learning input, use `--policy-type ppo` or `--policy-type recurrent_ppo`. The `bc_ppo` and `residual_ppo` modes remain available for the waypoint environment, but are intentionally rejected for `figure8_gates`.
+Because `figure8_gates` uses the legacy-style observation vector instead of the 19-value supervised-learning input, use `--policy-type ppo`, `--policy-type recurrent_ppo`, or `--policy-type recurrent_ppo_ltc`. The `bc_ppo` and `residual_ppo` modes remain available for the waypoint environment, but are intentionally rejected for `figure8_gates`.
 
 Small smoke run:
 
@@ -289,6 +290,7 @@ Render a trained figure-8 checkpoint with the legacy gate viewer:
 | `--dt` | `0.01` | Environment timestep. |
 | `--max-steps` | `6000` | Maximum steps per episode. |
 | `--track` | `square_waypoints` | `square_waypoints` keeps the current Bebop2 waypoint trainer; `figure8_gates` uses legacy-style figure-8 gates with Bebop2 dynamics. |
+| `--figure8-action-range` | `0_1` | Policy action range for `figure8_gates`; use `neg1_1` only for old checkpoints trained before the `[0, 1]` figure-8 change. |
 | `--dist-error` | `0.2` | Distance threshold to mark a waypoint reached. |
 | `--gate-size` | `1.5` | Gate pass/collision box size for `figure8_gates`. |
 | `--gates-ahead` | `1` | Number of future gates appended to the legacy-style observation in `figure8_gates`. |

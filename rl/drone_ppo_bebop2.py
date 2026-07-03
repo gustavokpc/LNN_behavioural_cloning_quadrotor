@@ -203,6 +203,7 @@ def make_env(
             no_vel=args.no_vel,
             no_ang_vel=args.no_ang_vel,
             randomize_external_moments=args.randomize_external_moments,
+            action_range=args.figure8_action_range,
             seed=seed,
         )
     if terminate_on_waypoint is None:
@@ -363,7 +364,7 @@ def render(args: argparse.Namespace) -> None:
                 deterministic=True,
             )
             obs, _, dones, _ = env.step(actions)
-            figure8_actions.append(((env.actions[0].astype(np.float64) + 1.0) * 0.5).clip(0.0, 1.0))
+            figure8_actions.append(env.action_to_bebop_command(env.actions[0].astype(np.float64)))
             figure8_times.append(figure8_step * args.dt)
             figure8_step += 1
             episode_start = dones
@@ -512,6 +513,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dt", type=float, default=0.01)
     parser.add_argument("--max-steps", type=int, default=6000)
     parser.add_argument("--track", choices=("square_waypoints", "figure8_gates"), default="square_waypoints")
+    parser.add_argument(
+        "--figure8-action-range",
+        choices=("0_1", "neg1_1"),
+        default="0_1",
+        help="Policy action range for --track figure8_gates. Use neg1_1 for old checkpoints.",
+    )
     parser.add_argument("--dist-error", type=float, default=0.2, help="Waypoint switch distance in meters.")
     parser.add_argument("--gate-size", type=float, default=1.5)
     parser.add_argument("--gates-ahead", type=int, default=1)

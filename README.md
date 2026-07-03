@@ -60,9 +60,59 @@ Optional plot:
 
 ### 3. Simulations
 
-Most Bebop2 checks should start with the C-exported square simulator. It runs the supervised-learning controller from `C_codes/` while changing only the simulated plant through `--dynamics-model`.
+Most checks should start with the C-exported square simulator. It runs a supervised-learning controller from `C_codes/` and lets you choose the simulated plant, motor time constant, waypoint tolerance, input noise, and plots from the command line.
 
-For the current CfC-on-Bebop2 action plot:
+The general command shape is:
+
+```bash
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_gazebo_square_C \
+  --model <MODEL_PRESET> \
+  --dynamics-model quadrotor_sim_matlab \
+  --time-simulation 20 \
+  --dist-error 0.001 \
+  --tau 0.03 \
+  --plot-signals
+```
+
+Preset models available through `--model`:
+
+| `--model` | Config | C export |
+| --- | --- | --- |
+| `CFC` | `configs/new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.yaml` | `C_codes/CFC` |
+| `CFC_PURE` | `configs/new_CFC_pure_64_neurons_seq_1_epoch=17_val_loss=0.000203.yaml` | `C_codes/CFC_PURE` |
+| `CONV_CFC_DEFAULT` | `configs/conv_cfc_default_n64_epoch=17_val_loss=0.000326.yaml` | `C_codes/CONV_CFC_DEFAULT` |
+| `NCP_CFC` | `configs/new_NCP_CFC_60_neurons_seq_1_epoch=18_val_loss=0.000143.yaml` | `C_codes/NCP_CFC` |
+| `LTC` | `configs/LTC_64_neurons_seq_1_epoch=18_val_loss=0.000193.yaml` | `C_codes/LTC` |
+| `CTRNN` | `configs/new_CTRNN_64_neurons_seq_1_epoch=19_val_loss=0.000150.yaml` | `C_codes/CTRNN` |
+| `RNN` | `configs/RNN_64_neurons_seq_1_epoch=17_val_loss=0.000147.yaml` | `C_codes/RNN` |
+| `GRU` | `configs/new_GRU_64_neurons_seq_1_epoch=19_val_loss=0.000088.yaml` | `C_codes/GRU` |
+| `LSTM` | `configs/new_LSTM_64_neurons_seq_1_epoch=17_val_loss=0.000092.yaml` | `C_codes/LSTM` |
+| `MLP` | `configs/mlp_epoch=19_val_loss=0.003130.yaml` | `C_codes/MLP` |
+
+For example, `--model CFC` launches the Bebop1 CfC export in `C_codes/CFC`; `--model GRU` launches the Bebop1 GRU export; and so on. These presets are convenient when the config and C folder are already listed above.
+
+The Bebop2 convolutional CfC export is not a `--model` preset, so pass the config and C folder explicitly:
+
+```bash
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_gazebo_square_C \
+  --model-config LNN_behavioural_cloning_quadrotor/configs/bbp2_conv_cfc_default_n64_epoch=19_val_loss=0.000143.yaml \
+  --c-model-dir LNN_behavioural_cloning_quadrotor/C_codes/BBP2_CONV_CFC \
+  --dynamics-model quadrotor_sim_matlab \
+  --time-simulation 20 \
+  --dist-error 0.001 \
+  --tau 0.03 \
+  --input-noise-p-sigma 0.24 \
+  --input-noise-q-sigma 0.12 \
+  --input-noise-r-sigma 0.10 \
+  --input-noise-seed 123 \
+  --reset-each-waypoint \
+  --plot-signals \
+  --signals-plot-output LNN_behavioural_cloning_quadrotor/simulators/runs/bbp2_conv_cfc_new_tau003_dist0001_pqr_noise_all_signals.png
+```
+
+This launches a 20 s square simulation with the Bebop2 CONV-CfC C model, the MATLAB-style quadrotor dynamics, `tau = 0.03`, waypoint tolerance `dist_error = 0.001`, Gaussian input noise on `p/q/r`, controller reset at each waypoint, and the all-signals plot enabled.
+
+To run the Bebop1 CfC model with the same simulation settings, use the preset instead of explicit Bebop2 paths:
 
 ```bash
 .venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_gazebo_square_C \
@@ -70,37 +120,53 @@ For the current CfC-on-Bebop2 action plot:
   --dynamics-model quadrotor_sim_matlab \
   --time-simulation 20 \
   --dist-error 0.001 \
-  --plot-actions \
-  --no-animation
+  --tau 0.03 \
+  --input-noise-p-sigma 0.24 \
+  --input-noise-q-sigma 0.12 \
+  --input-noise-r-sigma 0.10 \
+  --input-noise-seed 123 \
+  --reset-each-waypoint \
+  --plot-signals \
+  --signals-plot-output LNN_behavioural_cloning_quadrotor/simulators/runs/cfc_bebop1_tau003_dist0001_pqr_noise_all_signals.png
 ```
 
-Outputs are saved in [simulators/runs](simulators/runs):
+Useful square-simulator options:
 
-- `cfc_sl_bebop2_actions.png`
-- `cfc_sl_bebop2_actions.csv`
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--model` | `CFC` | Selects one of the preset config/C-export pairs. |
+| `--model-config <yaml>` | preset value | Overrides the YAML config. Use this for exports such as `BBP2_CONV_CFC`. |
+| `--c-model-dir <dir>` | preset value | Overrides the C controller folder. Use this together with `--model-config` for custom exports. |
+| `--dynamics-model` | `quadrotor_sim_matlab` | Plant model. Use `quadrotor_sim_matlab` for the MATLAB-style quadrotor model, or `quadrotor_sim_original` for the older reduced model. |
+| `--dt` | `0.01` | Simulation time step in seconds. |
+| `--time-simulation` | `60.0` | Maximum simulated time in seconds. |
+| `--dist-error` | `0.1` | Waypoint switch radius in meters. |
+| `--tau` | dynamics default | Runtime motor time-constant override in seconds, for example `--tau 0.03`. |
+| `--input-noise-p-sigma` | `0.0` | Gaussian input noise sigma for body rate `p` in rad/s. |
+| `--input-noise-q-sigma` | `0.0` | Gaussian input noise sigma for body rate `q` in rad/s. |
+| `--input-noise-r-sigma` | `0.0` | Gaussian input noise sigma for body rate `r` in rad/s. |
+| `--input-noise-seed` | none | Fixed random seed for repeatable input noise. |
+| `--reset-each-waypoint` | disabled | Calls `nn_reset()` whenever the waypoint changes, useful for recurrent/liquid controllers. |
+| `--plot-actions` | disabled | Save RL-style motor plots and CSV under `simulators/runs`. |
+| `--action-plot-output <png>` | `simulators/runs/cfc_sl_bebop2_actions.png` | Output path for `--plot-actions`. |
+| `--plot-signals` | disabled | Save the all-signals plot with states, commands, errors, and motor traces. |
+| `--signals-plot-output <png>` | `simulators/runs/square_all_state_commands.png` | Output path for `--plot-signals`. |
+| `--no-animation` | disabled | Run metrics/plots without opening the OpenCV animation window. |
+| `--record --output <file.mp4>` | disabled | Save the animation video. |
+| `--start-waypoint-index` | `3` | Which square waypoint index to start from. |
+| `--start-alt` | `1.0` | Initial altitude in meters. |
+| `--waypoint-alt` | `1.5` | Square waypoint altitude in meters. |
 
-The plot format matches the RL action plots: four stacked motor traces in RPM, plus CSV columns for motor RPM and RPM deltas. You do not need to set `MPLCONFIGDIR`; the simulator sets Matplotlib's cache/config directory to `simulators/runs/.matplotlib` before importing Matplotlib.
+The square route is hard-coded as four ENU waypoints:
+`(2.0, 1.5, 1.5)`, `(2.0, -1.5, 1.5)`, `(-2.0, -1.5, 1.5)`, `(-2.0, 1.5, 1.5)`.
 
-For an animated rollout with the same simulator:
+Outputs are saved in [simulators/runs](simulators/runs) unless another output path is supplied. You do not need to set `MPLCONFIGDIR`; the simulator sets Matplotlib's cache/config directory to `simulators/runs/.matplotlib` before importing Matplotlib.
+
+For an animated rollout with default settings:
 
 ```bash
 .venv/bin/python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_gazebo_square_C
 ```
-
-Useful options:
-
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `--model` | `CFC` | C export to run: `MLP`, `LTC`, `RNN`, `CFC`, `CFC_PURE`, `GRU`, `LSTM`, `NCP_CFC`, etc. |
-| `--dynamics-model` | `quadrotor_sim_matlab` | Bebop2 MATLAB force/moment model. Use `quadrotor_sim_original` only for the old reduced model. |
-| `--time-simulation` | `60.0` | Maximum simulated time in seconds. |
-| `--dist-error` | `0.1` | Waypoint switch radius in meters. |
-| `--plot-actions` | disabled | Save RL-style motor plots and CSV under `simulators/runs`. |
-| `--no-animation` | disabled | Run metrics/plots without opening the OpenCV animation window. |
-| `--record --output <file.mp4>` | disabled | Save the animation video. |
-
-The square route is hard-coded as four ENU waypoints:
-`(2.0, 1.5, 1.5)`, `(2.0, -1.5, 1.5)`, `(-2.0, -1.5, 1.5)`, `(-2.0, 1.5, 1.5)`.
 
 Other simulator entrypoints still exist for older workflows:
 
@@ -140,6 +206,7 @@ Example:
 All exported C controllers live in [C_codes](C_codes). The available folders are:
 
 ```text
+BBP2_CONV_CFC
 MLP
 LTC
 RNN
@@ -150,6 +217,9 @@ CTRNN
 GRU
 LSTM
 NCP_CFC
+RECURRENT_PPO_57600000
+FIGURE8_GATES_RECURRENT_PPO
+FIGURE8_GATES_LTC_RECURRENT_PPO
 ```
 
 Each folder contains:
