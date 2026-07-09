@@ -23,6 +23,8 @@ CHECKPOINT_TO_C_DIR = {
     "new_GRU_64_neurons_seq_1_epoch=19_val_loss=0.000088": "GRU",
     "new_LSTM_64_neurons_seq_1_epoch=17_val_loss=0.000092": "LSTM",
     "new_NCP_CFC_60_neurons_seq_1_epoch=18_val_loss=0.000143": "NCP_CFC",
+    "NOVA_VERSAOZE_BEBP2_conv_cfc_default_n64_bebop2_epoch=19_val_loss=0.000098": "NOVA_VERSAOZE_BEBP2_CONV_CFC",
+    "ERRADO_new_conv_bebop2_CFC_64_neurons_epoch=18_val_loss=0.000127": "ERRADO_BEBOP2_CONV_CFC",
 }
 
 
@@ -64,6 +66,10 @@ class CController:
         array_out = ctypes.POINTER(ctypes.c_float)
         self.lib.nn_control.argtypes = [array_in, array_out]
         self.lib.nn_control.restype = None
+        self._set_timespan = getattr(self.lib, "nn_set_timespan", None)
+        if self._set_timespan is not None:
+            self._set_timespan.argtypes = [ctypes.c_float]
+            self._set_timespan.restype = None
 
     def _build_shared_library(self) -> None:
         cmd = [
@@ -83,10 +89,16 @@ class CController:
     def reset(self) -> None:
         self.lib.nn_reset()
 
-    def predict(self, controller_input: np.ndarray) -> np.ndarray:
+    def set_timespan(self, timespan: float) -> None:
+        if self._set_timespan is not None:
+            self._set_timespan(ctypes.c_float(float(timespan)))
+
+    def predict(self, controller_input: np.ndarray, timespan: float | None = None) -> np.ndarray:
         x = np.asarray(controller_input, dtype=np.float32).reshape(-1)
         if x.size != self.num_states:
             raise ValueError(f"C controller expects {self.num_states} inputs, got {x.size}.")
+        if timespan is not None:
+            self.set_timespan(timespan)
         y = np.zeros(self.num_controls, dtype=np.float32)
         self.lib.nn_control(
             x.ctypes.data_as(ctypes.POINTER(ctypes.c_float)),

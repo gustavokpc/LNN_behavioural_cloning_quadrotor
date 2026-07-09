@@ -45,6 +45,7 @@ DEFAULT_SQUARE_ENU = np.asarray(
     ],
     dtype=np.float64,
 )
+DEFAULT_INITIAL_MOTOR_RPM = 7750.0
 
 
 def resolve_model_paths(project_root: Path, model: str, model_config: Path | None, c_model_dir: Path | None) -> tuple[Path, Path]:
@@ -138,7 +139,8 @@ def simulate_gazebo_square(
     square_world = np.asarray([_enu_to_network_world(wp) for wp in square_enu], dtype=np.float64)
     current_world = np.zeros(19, dtype=np.float64)
     current_world[0:3] = _enu_to_network_world(standby_enu)
-    current_world[15:19] = dynamics_info.omega_mid
+    initial_motor_rpm = DEFAULT_INITIAL_MOTOR_RPM if dynamics_info.name == "quadrotor_sim_matlab" else dynamics_info.omega_mid
+    current_world[15:19] = initial_motor_rpm
 
     controller = CController(c_model_dir)
     controller.reset()
@@ -149,7 +151,22 @@ def simulate_gazebo_square(
     total_states: list[np.ndarray] = []
     total_actions: list[np.ndarray] = []
     target_trace: list[np.ndarray] = []
-    c_input_labels = [label for label in config_model["dataset"]["input_labels"] if label not in {"t", "dt"}]
+    full_input_labels = config_model["dataset"]["input_labels"]
+    input_labels_without_time = [label for label in full_input_labels if label not in {"t", "dt"}]
+
+    def _expanded_input_size(labels: list[str]) -> int:
+        return sum(4 if label == "omega" else 1 for label in labels)
+
+    if _expanded_input_size(full_input_labels) == controller.num_states:
+        c_input_labels = full_input_labels
+    elif _expanded_input_size(input_labels_without_time) == controller.num_states:
+        c_input_labels = input_labels_without_time
+    else:
+        raise ValueError(
+            f"C controller expects {controller.num_states} inputs, but config expands to "
+            f"{_expanded_input_size(full_input_labels)} with time and "
+            f"{_expanded_input_size(input_labels_without_time)} without time."
+        )
 
     initial_distance = float(np.linalg.norm(standby_enu - square_enu[gate_index]))
     print(f"Initial ENU position STDBY: {standby_enu}")

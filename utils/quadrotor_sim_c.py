@@ -66,7 +66,7 @@ def rollout_c_controller(controller: CController,
                 sigma = float(input_noise_std.get(resolved, 0.0))
                 if sigma > 0.0:
                     controller_input[input_idx] += rng.normal(0.0, sigma)
-        action = np.clip(controller.predict(controller_input), 0.0, 1.0)
+        action = np.clip(controller.predict(controller_input, timespan=dt), 0.0, 1.0)
         state, prev_deriv = integrate_state(
             integration_method,
             state,
