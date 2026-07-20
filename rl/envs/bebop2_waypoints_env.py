@@ -229,14 +229,14 @@ class Bebop2WaypointEnv(VecEnv):
         rate_penalty = np.linalg.norm(new_states[:, 9:12], axis=1)
         angle_penalty = np.linalg.norm(new_states[:, 6:8], axis=1)
         # action_penalty = 0.0 * np.linalg.norm(actions, axis=1)
-        # action_penalty_delta = 0.001 * np.linalg.norm(actions - self.prev_actions, axis=1)
+        action_penalty_delta = 0.001 * np.linalg.norm(actions - self.prev_actions, axis=1)
         progress_reward = d2w_old - d2w_new
         # max_speed = 12.0
         # cap progress rewards to be less than max_speed*dt
         # progress_reward[progress_reward > max_speed * self.dt] = max_speed * self.dt
 
         # rewards = progress_reward - rate_penalty - angle_penalty
-        rewards = progress_reward - 0.001 * rate_penalty  # - action_penalty - action_penalty_delta
+        rewards = progress_reward - 0.001 * rate_penalty - action_penalty_delta # - action_penalty - action_penalty_delta
 
         # Waypoint reward + dist penalty
         in_hover_region = (
