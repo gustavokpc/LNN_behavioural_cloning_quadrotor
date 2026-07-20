@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Legacy-style figure-8 gate environment using the Bebop2 dynamics.
+"""Figure-8 gate environment using the Bebop2 dynamics.
 
-The public RL contract intentionally mirrors ``legacy_ppo.Quadcopter3DGates``:
+The task layout mirrors ``legacy_ppo.Quadcopter3DGates``:
 
 - figure-8 gate positions and gate yaw values
 - observations in the target-gate frame
-- actions in the legacy ``[-1, 1]`` motor command range
+- configurable policy action range, converted to Bebop2 ``[0, 1]`` motor commands
 - gate-plane pass/collision reward logic
 
 Internally, the environment keeps a 19-value Bebop2 simulator state and advances
@@ -46,7 +46,7 @@ DEFAULT_FIGURE8_START_POS = DEFAULT_FIGURE8_GATE_POS[0].copy()
 
 
 class Bebop2Figure8GatesEnv(VecEnv):
-    """SB3 VecEnv with legacy figure-8 gate observations and Bebop2 physics."""
+    """SB3 VecEnv with figure-8 gate observations and Bebop2 physics."""
 
     def __init__(
         self,
@@ -54,6 +54,8 @@ class Bebop2Figure8GatesEnv(VecEnv):
         gates_pos: np.ndarray | Sequence[Sequence[float]] = DEFAULT_FIGURE8_GATE_POS,
         gate_yaw: np.ndarray | Sequence[float] = DEFAULT_FIGURE8_GATE_YAW,
         start_pos: np.ndarray | Sequence[float] = DEFAULT_FIGURE8_START_POS,
+        start_pos_jitter: float = 0.5,
+        start_gate: int = 0,
         gates_ahead: int = 1,
         gate_size: float = 1.5,
         motor_limit: float = 1.0,
@@ -72,6 +74,7 @@ class Bebop2Figure8GatesEnv(VecEnv):
         integration_method: str = "rk4",
         implicit_iters: int = 1,
         randomize_external_moments: bool = False,
+        action_range: str = "0_1",
         seed: int | None = None,
     ):
         self.seed(seed)
@@ -80,7 +83,13 @@ class Bebop2Figure8GatesEnv(VecEnv):
         self.gate_pos = np.asarray(gates_pos, dtype=np.float32)
         self.gate_yaw = np.asarray(gate_yaw, dtype=np.float32)
         self.start_pos = np.asarray(start_pos, dtype=np.float32)
+        self.start_pos_jitter = float(start_pos_jitter)
+        if self.start_pos_jitter < 0.0:
+            raise ValueError("start_pos_jitter must be non-negative.")
         self.num_gates = int(self.gate_pos.shape[0])
+        self.start_gate = int(start_gate)
+        if not 0 <= self.start_gate < self.num_gates:
+            raise ValueError(f"start_gate must be between 0 and {self.num_gates - 1}.")
         self.gates_ahead = int(gates_ahead)
         self.gate_size = float(gate_size)
         self.motor_limit = float(motor_limit)
@@ -99,6 +108,9 @@ class Bebop2Figure8GatesEnv(VecEnv):
         self.integration_method = integration_method
         self.implicit_iters = int(implicit_iters)
         self.randomize_external_moments = bool(randomize_external_moments)
+        if action_range not in {"0_1", "neg1_1"}:
+            raise ValueError("action_range must be '0_1' or 'neg1_1'.")
+        self.action_range = action_range
 
         self.gate_pos_rel = np.zeros((self.num_gates, 3), dtype=np.float32)
         self.gate_yaw_rel = np.zeros(self.num_gates, dtype=np.float32)
@@ -120,8 +132,13 @@ class Bebop2Figure8GatesEnv(VecEnv):
                 yaw_rel += 2.0 * np.pi
             self.gate_yaw_rel[idx] = yaw_rel
 
-        u_lim = 2.0 * self.motor_limit - 1.0
-        action_space = spaces.Box(low=-1.0, high=u_lim, shape=(4,), dtype=np.float32)
+        if self.action_range == "neg1_1":
+            action_low = -1.0
+            action_high = 2.0 * self.motor_limit - 1.0
+        else:
+            action_low = 0.0
+            action_high = self.motor_limit
+        action_space = spaces.Box(low=action_low, high=action_high, shape=(4,), dtype=np.float32)
 
         self.state_len = 16 + 4 * self.gates_ahead + 4 * self.num_action_history + 9 * int(self.param_input)
         self.low_obs_state_len = self.state_len - 6
@@ -177,8 +194,11 @@ class Bebop2Figure8GatesEnv(VecEnv):
         info = quadrotor_sim_matlab.INFO
         return info.omega_min + 0.5 * (motor_state + 1.0) * (info.omega_max - info.omega_min)
 
-    def _legacy_action_to_bebop_action(self, actions: np.ndarray) -> np.ndarray:
-        return np.clip((actions + 1.0) * 0.5, 0.0, self.motor_limit)
+    def action_to_bebop_command(self, actions: np.ndarray) -> np.ndarray:
+        actions = np.asarray(actions)
+        if self.action_range == "neg1_1":
+            actions = (actions + 1.0) * 0.5
+        return np.clip(actions, 0.0, self.motor_limit)
 
     def _sample_external_moments(self, num_samples: int) -> np.ndarray:
         if not self.randomize_external_moments:
@@ -298,7 +318,7 @@ class Bebop2Figure8GatesEnv(VecEnv):
 
     def _action_to_commanded_speed_rpm(self, actions: np.ndarray) -> np.ndarray:
         info = quadrotor_sim_matlab.INFO
-        return info.omega_min + self._legacy_action_to_bebop_action(actions) * (info.omega_max - info.omega_min)
+        return info.omega_min + self.action_to_bebop_command(actions) * (info.omega_max - info.omega_min)
 
     def reset_(self, dones: np.ndarray) -> np.ndarray:
         num_reset = int(dones.sum())
@@ -334,10 +354,11 @@ class Bebop2Figure8GatesEnv(VecEnv):
                     closest_gate[env_idx] = int(behind_indices[np.argmin(dist_to_gate[env_idx][behind_indices])])
             self.target_gates[dones] = closest_gate
         else:
-            self.target_gates[dones] = 0
-            x0 = np.random.uniform(-0.5, 0.5, size=num_reset) + self.start_pos[0]
-            y0 = np.random.uniform(-0.5, 0.5, size=num_reset) + self.start_pos[1]
-            z0 = np.random.uniform(-0.5, 0.5, size=num_reset) + self.start_pos[2]
+            self.target_gates[dones] = self.start_gate
+            jitter = self.start_pos_jitter
+            x0 = np.random.uniform(-jitter, jitter, size=num_reset) + self.start_pos[0]
+            y0 = np.random.uniform(-jitter, jitter, size=num_reset) + self.start_pos[1]
+            z0 = np.random.uniform(-jitter, jitter, size=num_reset) + self.start_pos[2]
 
         velocity = np.stack(
             [
@@ -404,7 +425,13 @@ class Bebop2Figure8GatesEnv(VecEnv):
 
     def step_async(self, actions) -> None:
         self.prev_actions = self.actions
-        self.actions = np.clip(np.asarray(actions, dtype=np.float32), -1.0, 2.0 * self.motor_limit - 1.0)
+        if self.action_range == "neg1_1":
+            low = -1.0
+            high = 2.0 * self.motor_limit - 1.0
+        else:
+            low = 0.0
+            high = self.motor_limit
+        self.actions = np.clip(np.asarray(actions, dtype=np.float32), low, high)
 
     def step_wait(self):
         old_sim_states = self.sim_states.astype(np.float64)
@@ -412,7 +439,7 @@ class Bebop2Figure8GatesEnv(VecEnv):
         old_world_rel = np.asarray([body_to_world_state(state) for state in old_sim_states], dtype=np.float64)
         pos_old = old_targets + old_world_rel[:, 0:3]
 
-        actions01 = self._legacy_action_to_bebop_action(self.actions.astype(np.float64))
+        actions01 = self.action_to_bebop_command(self.actions.astype(np.float64))
         new_sim_states = np.zeros_like(old_sim_states)
         new_derivs: list[np.ndarray | None] = [None] * self.num_envs
         for idx in range(self.num_envs):
@@ -550,5 +577,5 @@ class Bebop2Figure8GatesEnv(VecEnv):
         self._refresh_world_states()
         keys = ["x", "y", "z", "vx", "vy", "vz", "phi", "theta", "psi", "p", "q", "r", "w1", "w2", "w3", "w4"]
         state_dict = dict(zip(keys, self.world_states.T, strict=True))
-        action_dict = dict(zip(["u1", "u2", "u3", "u4"], (self.actions.T + 1.0) * 0.5, strict=True))
+        action_dict = dict(zip(["u1", "u2", "u3", "u4"], self.action_to_bebop_command(self.actions).T, strict=True))
         return {**state_dict, **action_dict}

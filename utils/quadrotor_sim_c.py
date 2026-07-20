@@ -44,7 +44,9 @@ def rollout_c_controller(controller: CController,
                          integration_method: str = "explicit",
                          implicit_iters: int = 5,
                          stop_fn: Callable[[np.ndarray, int], bool] | None = None,
-                         reset_controller: bool = True) -> tuple[np.ndarray, np.ndarray]:
+                         reset_controller: bool = True,
+                         input_noise_std: dict[str, float] | None = None,
+                         rng: np.random.Generator | None = None) -> tuple[np.ndarray, np.ndarray]:
     """Roll out the quadrotor dynamics using an exported C controller."""
     if reset_controller:
         controller.reset()
@@ -56,7 +58,15 @@ def rollout_c_controller(controller: CController,
 
     for step_idx in range(int(horizon_steps)):
         controller_input = build_c_input_vector(state, input_labels, dt)
-        action = np.clip(controller.predict(controller_input), 0.0, 1.0)
+        if input_noise_std:
+            if rng is None:
+                rng = np.random.default_rng()
+            for input_idx, label in enumerate(input_labels):
+                resolved = LABEL_ALIASES.get(label, label)
+                sigma = float(input_noise_std.get(resolved, 0.0))
+                if sigma > 0.0:
+                    controller_input[input_idx] += rng.normal(0.0, sigma)
+        action = np.clip(controller.predict(controller_input, timespan=dt), 0.0, 1.0)
         state, prev_deriv = integrate_state(
             integration_method,
             state,

@@ -75,7 +75,12 @@ def _prepare_dataset(config_model: dict, dataset_path: str):
     return inputs, outputs, dt_values
 
 
-def _initial_window(raw_traj_inputs: np.ndarray, base_labels: list[str], seq_len: int) -> np.ndarray:
+def _initial_window(
+    raw_traj_inputs: np.ndarray,
+    base_labels: list[str],
+    seq_len: int,
+    normalization_limits: str = "bebop1",
+) -> np.ndarray:
     feature_traj = raw_traj_inputs.transpose(1, 0)
     # When sequence models are used, the initial hidden context is taken from
     # the first observed states in the trajectory rather than repeated zeros.
@@ -83,7 +88,10 @@ def _initial_window(raw_traj_inputs: np.ndarray, base_labels: list[str], seq_len
     if window.shape[0] < seq_len:
         pad = np.repeat(window[-1:, :], seq_len - window.shape[0], axis=0)
         window = np.concatenate([window, pad], axis=0)
-    return np.asarray([normalize_input(row, base_labels) for row in window], dtype=np.float64)
+    return np.asarray(
+        [normalize_input(row, base_labels, normalization_limits) for row in window],
+        dtype=np.float64,
+    )
 
 
 def simulate_from_dataset(config_sim: dict, config_model: dict, project_root: Path):
@@ -95,6 +103,9 @@ def simulate_from_dataset(config_sim: dict, config_model: dict, project_root: Pa
     expanded_labels = expand_feature_labels(base_labels)
     use_sequencing = bool(config_model.get("sequencing", {}).get("value", False))
     seq_len = int(config_model.get("sequencing", {}).get("seq_len", 1))
+    normalization_limits = config_model["dataset"].get(
+        "normalization_limits", config_model["dataset"].get("bebop_model", "bebop1")
+    )
     sim_cfg = config_sim["simulation"]
 
     results = []
@@ -104,7 +115,7 @@ def simulate_from_dataset(config_sim: dict, config_model: dict, project_root: Pa
         dt = float(dt_values[traj_idx])
         raw_traj_inputs = raw_inputs[traj_idx]
         initial_state = state_from_input_features(raw_traj_inputs[:, 0], expanded_labels)
-        init_window = _initial_window(raw_traj_inputs, base_labels, seq_len)
+        init_window = _initial_window(raw_traj_inputs, base_labels, seq_len, normalization_limits)
         # Reconstruct the dataset trajectory as a full body-frame state rollout
         # so we can compare apples-to-apples with the simulated trajectory.
         reference_states = np.asarray(

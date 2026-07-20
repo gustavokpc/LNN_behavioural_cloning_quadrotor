@@ -164,23 +164,38 @@ def state_from_input_features(values: np.ndarray, input_labels: list[str]) -> np
     return state
 
 
-def normalize_input(values: np.ndarray, input_labels: list[str]) -> np.ndarray:
+def normalize_input(
+    values: np.ndarray,
+    input_labels: list[str],
+    normalization_limits: str = "bebop1",
+) -> np.ndarray:
     """Normalize simulator inputs with the same bounds used for training data."""
-    global_min, global_max = get_norm_vectors(input_labels)
+    global_min, global_max = get_norm_vectors(input_labels, normalization_limits)
     global_min = global_min.reshape(-1)
     global_max = global_max.reshape(-1)
     return (values - global_min) / (global_max - global_min + 1e-10)
 
 
-def build_normalized_window(state: np.ndarray, input_labels: list[str], seq_len: int) -> np.ndarray:
+def build_normalized_window(
+    state: np.ndarray,
+    input_labels: list[str],
+    seq_len: int,
+    normalization_limits: str = "bebop1",
+) -> np.ndarray:
     """Create the initial normalized history window for sequence models."""
-    obs = normalize_input(build_input_vector(state, input_labels), input_labels)
+    obs = normalize_input(build_input_vector(state, input_labels), input_labels, normalization_limits)
     return np.repeat(obs[np.newaxis, :], repeats=max(1, seq_len), axis=0)
 
 
-def update_observation_window(window: np.ndarray, state: np.ndarray, input_labels: list[str], seq_len: int) -> np.ndarray:
+def update_observation_window(
+    window: np.ndarray,
+    state: np.ndarray,
+    input_labels: list[str],
+    seq_len: int,
+    normalization_limits: str = "bebop1",
+) -> np.ndarray:
     """Append a newly simulated state to the rolling observation history."""
-    new_obs = normalize_input(build_input_vector(state, input_labels), input_labels)
+    new_obs = normalize_input(build_input_vector(state, input_labels), input_labels, normalization_limits)
     if seq_len <= 1:
         return new_obs[np.newaxis, :]
     return np.concatenate([window[-(seq_len - 1):], new_obs[np.newaxis, :]], axis=0)
@@ -221,12 +236,22 @@ def rollout_controller(model,
                        force_timespans: bool = False,
                        integration_method: str = "explicit",
                        implicit_iters: int = 5,
-                       stop_fn: Callable[[np.ndarray, int], bool] | None = None) -> tuple[np.ndarray, np.ndarray]:
+                       stop_fn: Callable[[np.ndarray, int], bool] | None = None,
+                       normalization_limits: str | None = None) -> tuple[np.ndarray, np.ndarray]:
     # The rollout helper is shared by all simulator entrypoints so recurrent
     # state handling and observation-window updates stay identical everywhere.
     base_labels = input_labels_without_time(input_labels)
+    if normalization_limits is None:
+        dataset_cfg = getattr(model, "config", {}).get("dataset", {})
+        normalization_limits = dataset_cfg.get(
+            "normalization_limits", dataset_cfg.get("bebop_model", "bebop1")
+        )
     state = np.asarray(initial_state, dtype=np.float64).copy()
-    window = np.array(initial_window, copy=True) if initial_window is not None else build_normalized_window(state, base_labels, seq_len)
+    window = (
+        np.array(initial_window, copy=True)
+        if initial_window is not None
+        else build_normalized_window(state, base_labels, seq_len, normalization_limits)
+    )
     dt_tensor = None
     if force_timespans or getattr(model, "with_time", False):
         dt_tensor = torch.tensor(dt, dtype=torch.float32, device=device).reshape(1, 1, 1)
@@ -254,7 +279,7 @@ def rollout_controller(model,
         actions.append(action)
         if stop_fn is not None and stop_fn(state, step_idx + 1):
             break
-        window = update_observation_window(window, state, base_labels, seq_len)
+        window = update_observation_window(window, state, base_labels, seq_len, normalization_limits)
 
     return np.asarray(states), np.asarray(actions)
 

@@ -55,6 +55,7 @@ class Bebop2WaypointEnv(VecEnv):
         initialize_at_random_waypoints: bool = False,
         terminate_on_waypoint: bool = True,
         normalize_observations: bool = False,
+        normalization_limits: str = "bebop2_tau_0_06",
         randomize_external_moments: bool = True,
         seed: int | None = None,
     ):
@@ -73,7 +74,7 @@ class Bebop2WaypointEnv(VecEnv):
         self.terminate_on_waypoint = bool(terminate_on_waypoint)
         self.normalize_observations = bool(normalize_observations)
         self.randomize_external_moments = bool(randomize_external_moments)
-        norm_min, norm_max = get_norm_vectors(STATE_LABELS)
+        norm_min, norm_max = get_norm_vectors(STATE_LABELS, normalization_limits)
         self.obs_min = norm_min.reshape(-1).astype(np.float32)
         self.obs_max = norm_max.reshape(-1).astype(np.float32)
 

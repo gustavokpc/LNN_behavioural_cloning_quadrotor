@@ -322,7 +322,9 @@ def _shape_cfc_timespans(
 
 
 class RecurrentActorCriticCfCPolicy(LogStdClampMixin, RecurrentActorCriticPolicy):
-    """RecurrentActorCriticPolicy variant that swaps SB3's internal LSTMs for CfC blocks."""
+    """RecurrentActorCriticPolicy variant that swaps SB3's internal LSTMs for CfC/LTC blocks."""
+
+    recurrent_cell_cls = CfC
 
     def __init__(
         self,
@@ -346,22 +348,15 @@ class RecurrentActorCriticCfCPolicy(LogStdClampMixin, RecurrentActorCriticPolicy
             *args,
             **kwargs,
         )
-        # CfC keeps a single hidden state (no cell), so we only track one layer.
+        # CfC/LTC keeps a single hidden state (no cell), so we only track one layer.
         self.lstm_hidden_state_shape = (1, 1, self.lstm_output_dim)
-        self.lstm_actor = CfC(
+        self.lstm_actor = self.recurrent_cell_cls(
             self.features_dim,
             self.lstm_output_dim,
             batch_first=True,
             return_sequences=True,
             **self._cfc_kwargs,
         )
-        # self.lstm_actor = LTC(
-        #     self.features_dim,
-        #     self.lstm_output_dim,
-        #     batch_first=True,
-        #     return_sequences=True,
-        #     **self._cfc_kwargs,
-        # )
         self.lstm_actor.cfc_timespan = self._cfc_timespan
         for name, param in self.lstm_actor.named_parameters():
             if "bias" in name:
@@ -372,20 +367,13 @@ class RecurrentActorCriticCfCPolicy(LogStdClampMixin, RecurrentActorCriticPolicy
         self.lstm_actor.num_layers = 1
 
         if self.enable_critic_lstm:
-            self.lstm_critic = CfC(
+            self.lstm_critic = self.recurrent_cell_cls(
                 self.features_dim,
                 self.lstm_output_dim,
                 batch_first=True,
                 return_sequences=True,
                 **self._cfc_kwargs,
             )
-            # self.lstm_critic = LTC(
-            #     self.features_dim,
-            #     self.lstm_output_dim,
-            #     batch_first=True,
-            #     return_sequences=True,
-            #     **self._cfc_kwargs,
-            # )
             self.lstm_critic.cfc_timespan = self._cfc_timespan
             self.lstm_critic.hidden_size = self.lstm_output_dim
             self.lstm_critic.num_layers = 1
@@ -462,6 +450,12 @@ class RecurrentActorCriticCfCPolicy(LogStdClampMixin, RecurrentActorCriticPolicy
         )
 
 
+class RecurrentActorCriticLTCPolicy(RecurrentActorCriticCfCPolicy):
+    """RecurrentActorCriticPolicy variant that swaps SB3's internal LSTMs for LTC blocks."""
+
+    recurrent_cell_cls = LTC
+
+
 def resolve_algorithm(args) -> tuple[type[PPO] | type[RecurrentPPO], type[ActorCriticPolicy], dict[str, Any]]:
     """Map CLI policy choice to the SB3 algorithm, policy class, and kwargs."""
     shared_cfc_kwargs = dict(
@@ -474,7 +468,7 @@ def resolve_algorithm(args) -> tuple[type[PPO] | type[RecurrentPPO], type[ActorC
             max_log_std=args.max_log_std,
         )
         return PPO, ClampedLogStdActorCriticPolicy, policy_kwargs
-    elif args.policy_type == "recurrent_ppo":
+    elif args.policy_type in {"recurrent_ppo", "recurrent_ppo_ltc"}:
         algo_cls = RecurrentPPO
         features_extractor_cls = (
             FlattenExtractor if args.use_flatten_features else MyCfCFeaturesExtractor
@@ -493,7 +487,8 @@ def resolve_algorithm(args) -> tuple[type[PPO] | type[RecurrentPPO], type[ActorC
             cfc_kwargs=shared_cfc_kwargs,
             max_log_std=args.max_log_std,
         )
-        return algo_cls, RecurrentActorCriticCfCPolicy, policy_kwargs
+        policy_class = RecurrentActorCriticLTCPolicy if args.policy_type == "recurrent_ppo_ltc" else RecurrentActorCriticCfCPolicy
+        return algo_cls, policy_class, policy_kwargs
 
     raise ValueError(f"Unsupported policy type: {args.policy_type}")
 
@@ -899,9 +894,9 @@ def parse_args():
     parser.add_argument(
         "--policy-type",
         type=str,
-        choices=("ppo", "recurrent_ppo"),
+        choices=("ppo", "recurrent_ppo", "recurrent_ppo_ltc"),
         default="recurrent_ppo",
-        help="Selects between standard PPO (feedforward) and Recurrent PPO for CfC policies.",
+        help="Selects between standard PPO (feedforward), Recurrent PPO with CfC, and Recurrent PPO with LTC.",
     )
     parser.add_argument(
         "--use-burn-in",
@@ -922,8 +917,8 @@ def parse_args():
     parser.add_argument("--param-input", action="store_true")
     parser.add_argument("--param-input-noise", type=float, default=0.0)
     args = parser.parse_args()
-    if args.policy_type != "recurrent_ppo" and args.use_burn_in:
-        raise ValueError("--use-burn-in is only supported with --policy-type recurrent_ppo.")
+    if args.policy_type not in {"recurrent_ppo", "recurrent_ppo_ltc"} and args.use_burn_in:
+        raise ValueError("--use-burn-in is only supported with recurrent policy types.")
     return args
 
 

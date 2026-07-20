@@ -13,9 +13,15 @@ This is the non-legacy training entrypoint. It uses:
 from __future__ import annotations
 
 import argparse
+import csv
+import os
+import re
 import time
 from pathlib import Path
 from typing import Any
+
+_RL_ROOT = Path(__file__).resolve().parent
+os.environ.setdefault("MPLCONFIGDIR", str(_RL_ROOT / "runs" / ".matplotlib"))
 
 import numpy as np
 from stable_baselines3.common.callbacks import CheckpointCallback
@@ -32,10 +38,11 @@ from .legacy_ppo.drone_ppo_sb3 import (
     resolve_algorithm,
 )
 from ..utils.animation import animate
+from ..utils.dynamics_models import quadrotor_sim_matlab
 from ..utils.quadrotor_sim import body_to_world_state
 
 
-RL_ROOT = Path(__file__).resolve().parent
+RL_ROOT = _RL_ROOT
 PROJECT_ROOT = RL_ROOT.parent
 
 
@@ -47,6 +54,133 @@ def _state_to_absolute_position(state: np.ndarray, target: np.ndarray) -> np.nda
     return target + body_to_world_state(state)[0:3]
 
 
+def _safe_filename(value: str) -> str:
+    return re.sub(r"[^A-Za-z0-9_.-]+", "_", value).strip("_")
+
+
+def _action_output_stem(args: argparse.Namespace) -> Path:
+    if args.action_plot_output:
+        output = Path(args.action_plot_output)
+        return output.with_suffix("") if output.suffix else output
+    checkpoint_stem = _safe_filename(Path(args.cont).stem)
+    track_artifact = _track_artifact_name(args.track)
+    return RL_ROOT / "runs" / "action_plots" / track_artifact / args.policy_type / checkpoint_stem
+
+
+def _signals_output_path(args: argparse.Namespace) -> Path:
+    if args.signals_plot_output:
+        output = Path(args.signals_plot_output)
+        return output if output.suffix else output.with_suffix(".png")
+    checkpoint_stem = _safe_filename(Path(args.cont).stem)
+    track_artifact = _track_artifact_name(args.track)
+    return RL_ROOT / "runs" / "signal_plots" / track_artifact / args.policy_type / f"{checkpoint_stem}.png"
+
+
+def _commands01_to_rpm(actions01: np.ndarray) -> np.ndarray:
+    info = quadrotor_sim_matlab.INFO
+    return info.omega_min + np.clip(actions01, 0.0, 1.0) * (info.omega_max - info.omega_min)
+
+
+def _print_action_stats(label: str, actions01: np.ndarray, rpm: np.ndarray) -> None:
+    if len(actions01) < 2:
+        print(f"{label}: not enough action samples for delta stats.")
+        return
+    delta_cmd = np.diff(actions01, axis=0)
+    delta_rpm = np.diff(rpm, axis=0)
+    max_abs_delta_cmd = np.max(np.abs(delta_cmd), axis=0)
+    mean_abs_delta_cmd = np.mean(np.abs(delta_cmd), axis=0)
+    max_abs_delta_rpm = np.max(np.abs(delta_rpm), axis=0)
+    mean_abs_delta_rpm = np.mean(np.abs(delta_rpm), axis=0)
+    stats = []
+    for idx in range(4):
+        stats.append(
+            f"u{idx + 1}: max_delta={max_abs_delta_cmd[idx]:.4f} "
+            f"({max_abs_delta_rpm[idx]:.1f} rpm), "
+            f"mean_delta={mean_abs_delta_cmd[idx]:.4f} ({mean_abs_delta_rpm[idx]:.1f} rpm)"
+        )
+    print(f"{label} action smoothness | " + " | ".join(stats))
+
+
+def _save_action_csv(path: Path, rollouts: list[dict[str, np.ndarray]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", newline="") as csv_file:
+        writer = csv.writer(csv_file)
+        writer.writerow(
+            [
+                "episode",
+                "step",
+                "time_s",
+                "u1_rpm",
+                "u2_rpm",
+                "u3_rpm",
+                "u4_rpm",
+                "du1_rpm",
+                "du2_rpm",
+                "du3_rpm",
+                "du4_rpm",
+            ]
+        )
+        for episode_idx, rollout in enumerate(rollouts, start=1):
+            actions01 = np.asarray(rollout["actions"], dtype=np.float64)
+            rpm = _commands01_to_rpm(actions01)
+            delta_rpm = np.vstack([np.zeros((1, 4), dtype=np.float64), np.diff(rpm, axis=0)])
+            for step_idx, (time_s, action_row, rpm_row, delta_row) in enumerate(
+                zip(rollout["t"], actions01, rpm, delta_rpm, strict=True)
+            ):
+                writer.writerow([episode_idx, step_idx, time_s, *rpm_row, *delta_row])
+
+
+def _plot_action_rollouts(
+    rollouts: list[dict[str, np.ndarray]],
+    args: argparse.Namespace,
+    title: str,
+) -> None:
+    if not rollouts:
+        return
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    output_stem = _action_output_stem(args)
+    output_stem.parent.mkdir(parents=True, exist_ok=True)
+    png_path = output_stem.with_suffix(".png")
+    csv_path = output_stem.with_suffix(".csv")
+
+    fig, axes = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
+    colors = ["tab:blue", "tab:orange", "tab:green", "tab:red"]
+    for episode_idx, rollout in enumerate(rollouts, start=1):
+        actions01 = np.asarray(rollout["actions"], dtype=np.float64)
+        rpm = _commands01_to_rpm(actions01)
+        time_s = np.asarray(rollout["t"], dtype=np.float64)
+        alpha = 0.95 if len(rollouts) == 1 else 0.35
+        for motor_idx in range(4):
+            suffix = "" if len(rollouts) == 1 else f" ep{episode_idx}"
+            axes[motor_idx].plot(
+                time_s,
+                rpm[:, motor_idx],
+                color=colors[motor_idx],
+                alpha=alpha,
+                linewidth=1.1,
+                label=f"motor {motor_idx + 1}{suffix}",
+            )
+        _print_action_stats(f"Episode {episode_idx}", actions01, rpm)
+
+    for motor_idx, ax in enumerate(axes):
+        ax.set_ylabel(f"motor {motor_idx + 1}\n[rpm]")
+        ax.grid(True, alpha=0.25)
+        ax.legend(loc="upper right", fontsize=8)
+    axes[-1].set_xlabel("time [s]")
+    fig.suptitle(title)
+    fig.tight_layout()
+    fig.savefig(png_path, dpi=160)
+    plt.close(fig)
+
+    _save_action_csv(csv_path, rollouts)
+    print(f"Action plot saved to {png_path}")
+    print(f"Action CSV saved to {csv_path}")
+
+
 def make_env(
     args: argparse.Namespace,
     num_envs: int,
@@ -55,9 +189,22 @@ def make_env(
 ):
     if args.track == "figure8_gates":
         if args.policy_type in {"bc_ppo", "residual_ppo"}:
-            raise ValueError("--track figure8_gates uses legacy-style observations; choose --policy-type ppo or recurrent_ppo.")
-        return Bebop2Figure8GatesEnv(
+            raise ValueError(
+                "--track figure8_gates uses legacy-style observations; "
+                "choose --policy-type ppo, recurrent_ppo, or recurrent_ppo_ltc."
+            )
+        figure8_start_pos = None
+        figure8_start_pos_jitter = 0.5
+        figure8_start_pos_enu = getattr(args, "figure8_start_pos_enu", None)
+        if figure8_start_pos_enu is not None:
+            x_enu, y_enu, z_enu = figure8_start_pos_enu
+            # Paparazzi/Gazebo ENU -> controller world frame {Y, X, -Z}.
+            figure8_start_pos = np.asarray([y_enu, x_enu, -z_enu], dtype=np.float32)
+            figure8_start_pos_jitter = 0.0
+
+        env_kwargs = dict(
             num_envs=num_envs,
+            start_gate=getattr(args, "figure8_start_gate", 0),
             gates_ahead=args.gates_ahead,
             gate_size=args.gate_size,
             dt=args.dt,
@@ -75,14 +222,19 @@ def make_env(
             no_vel=args.no_vel,
             no_ang_vel=args.no_ang_vel,
             randomize_external_moments=args.randomize_external_moments,
+            action_range=args.figure8_action_range,
             seed=seed,
         )
+        if figure8_start_pos is not None:
+            env_kwargs["start_pos"] = figure8_start_pos
+            env_kwargs["start_pos_jitter"] = figure8_start_pos_jitter
+        return Bebop2Figure8GatesEnv(**env_kwargs)
     if terminate_on_waypoint is None:
         terminate_on_waypoint = True
-    normalize_observations = bool(args.normalize_observations and args.policy_type in {"ppo", "recurrent_ppo"})
+    normalize_observations = bool(args.normalize_observations and args.policy_type in {"ppo", "recurrent_ppo", "recurrent_ppo_ltc"})
     env_kwargs = dict(
         num_envs=num_envs,
-        waypoint_radius=args.waypoint_radius,
+        waypoint_radius=args.dist_error,
         dt=args.dt,
         max_steps=args.max_steps,
         integration_method=args.integration_method,
@@ -222,9 +374,13 @@ def render(args: argparse.Namespace) -> None:
         obs = env.reset()
         state = None
         episode_start = np.ones((env.num_envs,), dtype=bool)
+        figure8_actions = []
+        figure8_states_world = []
+        figure8_times = []
+        figure8_step = 0
 
         def run():
-            nonlocal obs, state, episode_start
+            nonlocal obs, state, episode_start, figure8_step
             actions, state = model.predict(
                 obs,
                 state=state,
@@ -232,6 +388,13 @@ def render(args: argparse.Namespace) -> None:
                 deterministic=True,
             )
             obs, _, dones, _ = env.step(actions)
+            figure8_actions.append(env.action_to_bebop_command(env.actions[0].astype(np.float64)))
+            target = env.gate_pos[env.target_gates[0] % env.num_gates].astype(np.float64)
+            state_world = body_to_world_state(env.sim_states[0].astype(np.float64))
+            state_world[0:3] += target
+            figure8_states_world.append(state_world)
+            figure8_times.append(figure8_step * args.dt)
+            figure8_step += 1
             episode_start = dones
             if dones.any():
                 state = None
@@ -246,6 +409,29 @@ def render(args: argparse.Namespace) -> None:
             record_file=args.output,
             show_window=args.auto_play or not args.record,
         )
+        if args.plot_actions and figure8_actions:
+            _plot_action_rollouts(
+                [
+                    {
+                        "actions": np.asarray(figure8_actions, dtype=np.float64),
+                        "t": np.asarray(figure8_times, dtype=np.float64),
+                    }
+                ],
+                args,
+                title=f"{args.track} {args.policy_type} actions - {Path(args.cont).name}",
+            )
+        if args.plot_signals and figure8_actions:
+            from ..simulators.Simulator_gazebo_square_C import _plot_all_signals
+
+            signals_output = _signals_output_path(args)
+            _plot_all_signals(
+                states_world=np.asarray(figure8_states_world, dtype=np.float64),
+                actions=np.asarray(figure8_actions, dtype=np.float64),
+                dt=args.dt,
+                output_path=signals_output,
+                title=f"{args.track} {args.policy_type} signals - {Path(args.cont).name}",
+            )
+            print(f"Signals plot saved to {signals_output}")
         env.close()
         return
 
@@ -267,6 +453,13 @@ def render(args: argparse.Namespace) -> None:
         print(
             f"Episode {episode_idx + 1}: "
             f"steps={len(rollout['t'])} | total_reward={rollout['reward']:.3f}"
+        )
+
+    if args.plot_actions:
+        _plot_action_rollouts(
+            rollouts,
+            args,
+            title=f"{args.track} {args.policy_type} actions - {Path(args.cont).name}",
         )
 
     if args.render_episodes == 1:
@@ -339,11 +532,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--n-epochs", type=int, default=5)
     parser.add_argument("--cfc-timespan", type=float, default=0.01)
     parser.add_argument("--use-flatten-features", type=bool, default=True)
-    parser.add_argument("--policy-type", choices=("ppo", "recurrent_ppo", "bc_ppo", "residual_ppo"), default="recurrent_ppo")
+    parser.add_argument(
+        "--policy-type",
+        choices=("ppo", "recurrent_ppo", "recurrent_ppo_ltc", "bc_ppo", "residual_ppo"),
+        default="recurrent_ppo",
+    )
     parser.add_argument(
         "--bc-config",
         type=str,
-        default=str(PROJECT_ROOT / "configs/new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.yaml"),
+        default=str(PROJECT_ROOT / "configs/bebop1/new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.yaml"),
     )
     parser.add_argument(
         "--bc-checkpoint",
@@ -356,7 +553,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dt", type=float, default=0.01)
     parser.add_argument("--max-steps", type=int, default=6000)
     parser.add_argument("--track", choices=("square_waypoints", "figure8_gates"), default="square_waypoints")
-    parser.add_argument("--waypoint-radius", type=float, default=0.2)
+    parser.add_argument(
+        "--figure8-action-range",
+        choices=("0_1", "neg1_1"),
+        default="0_1",
+        help="Policy action range for --track figure8_gates. Use neg1_1 for old checkpoints.",
+    )
+    parser.add_argument("--dist-error", type=float, default=0.2, help="Waypoint switch distance in meters.")
     parser.add_argument("--gate-size", type=float, default=1.5)
     parser.add_argument("--gates-ahead", type=int, default=1)
     parser.add_argument("--integration-method", default="rk4")
@@ -364,6 +567,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--initialize-at-random-waypoints", action="store_true")
     parser.add_argument("--initialize-at-random-gates", action="store_true")
     parser.add_argument("--initialize-uniform", action="store_true")
+    parser.add_argument(
+        "--figure8-start-pos-enu",
+        type=float,
+        nargs=3,
+        metavar=("X", "Y", "Z"),
+        default=None,
+        help=(
+            "Exact figure-8 start position in Paparazzi/Gazebo ENU coordinates. "
+            "For example: --figure8-start-pos-enu 1.9 1.0 1.0."
+        ),
+    )
+    parser.add_argument(
+        "--figure8-start-gate",
+        type=int,
+        choices=range(8),
+        default=0,
+        metavar="{0..7}",
+        help="First target gate in figure-8 mode: 0=RL_F8_1, ..., 7=RL_F8_8.",
+    )
     parser.add_argument("--num-state-history", type=int, default=0)
     parser.add_argument("--num-action-history", type=int, default=0)
     parser.add_argument("--history-step-size", type=int, default=1)
@@ -382,6 +604,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--record", action="store_true")
     parser.add_argument("--output", default="")
     parser.add_argument("--auto-play", action=argparse.BooleanOptionalAction, default=True)
+    parser.add_argument("--plot-actions", action="store_true")
+    parser.add_argument(
+        "--action-plot-output",
+        default="",
+        help="Optional output path for --plot-actions. Defaults to rl/runs/action_plots/<track>/<policy>/<checkpoint>.png/.csv.",
+    )
+    parser.add_argument("--plot-signals", action="store_true")
+    parser.add_argument(
+        "--signals-plot-output",
+        default="",
+        help="Optional PNG path for --plot-signals. Defaults to rl/runs/signal_plots/<track>/<policy>/<checkpoint>.png.",
+    )
     parser.add_argument("--log-std-init", type=float, default=-3.0)
     args = parser.parse_args()
     track_artifact = _track_artifact_name(args.track)
@@ -390,7 +624,10 @@ def parse_args() -> argparse.Namespace:
     if not args.output:
         args.output = str(RL_ROOT / "runs" / f"{track_artifact}_rollout.mp4")
     if args.track == "figure8_gates" and args.policy_type in {"bc_ppo", "residual_ppo"}:
-        raise ValueError("--track figure8_gates uses legacy-style observations; choose --policy-type ppo or recurrent_ppo.")
+        raise ValueError(
+            "--track figure8_gates uses legacy-style observations; "
+            "choose --policy-type ppo, recurrent_ppo, or recurrent_ppo_ltc."
+        )
     return args
 
 
@@ -401,7 +638,7 @@ def resolve_bebop2_algorithm(args):
             bc_checkpoint_path=args.bc_checkpoint,
             project_root=PROJECT_ROOT,
             value_hidden_dim=args.bc_value_hidden_dim,
-            max_log_std=args.max_log_std,
+            max_log_std=args.max_log_std,   
             log_std_init=args.log_std_init,
         )
         return PPO, BCInitializedActorCriticPolicy, policy_kwargs

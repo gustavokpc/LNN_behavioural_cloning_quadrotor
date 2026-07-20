@@ -96,6 +96,9 @@ def main() -> None:
 
     use_sequencing = bool(config_model.get("sequencing", {}).get("value", False))
     seq_len = int(config_model.get("sequencing", {}).get("seq_len", 1))
+    normalization_limits = config_model["dataset"].get(
+        "normalization_limits", config_model["dataset"].get("bebop_model", "bebop1")
+    )
     model = _build_model(config_model, args.project_root, config_sim["model_path"])
 
     times = []
@@ -112,7 +115,12 @@ def main() -> None:
         dt = float(dt_values[traj_idx])
         raw_traj_inputs = raw_inputs[traj_idx]
         initial_state = _prepare_initial_state(raw_traj_inputs, config_model["dataset"]["input_labels"])
-        init_window = _initial_window(raw_traj_inputs, config_model["dataset"]["input_labels"], seq_len)
+        init_window = _initial_window(
+            raw_traj_inputs,
+            config_model["dataset"]["input_labels"],
+            seq_len,
+            normalization_limits,
+        )
 
         simulated_states_body, generated_actions = rollout_controller(
             model=model,

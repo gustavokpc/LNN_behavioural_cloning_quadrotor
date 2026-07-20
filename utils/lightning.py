@@ -60,7 +60,13 @@ class Lightning_Model(L.LightningModule):
         self.with_time = (('t' in config['dataset']['input_labels'])
                           or ('dt' in config['dataset']['input_labels']))
         # Precompute normalization bounds
-        self.global_min, self.global_max = get_norm_vectors(config['dataset']['input_labels'])
+        dataset_cfg = config['dataset']
+        norm_profile = dataset_cfg.get(
+            'normalization_limits', dataset_cfg.get('bebop_model', 'bebop1')
+        )
+        self.global_min, self.global_max = get_norm_vectors(
+            dataset_cfg['input_labels'], norm_profile
+        )
         self.global_min, self.global_max = torch.tensor(self.global_min), torch.tensor(self.global_max)
         self.global_min, self.global_max = self.global_min.permute(0, 2, 1), self.global_max.permute(0, 2, 1)
 

@@ -3,6 +3,8 @@ import cv2
 from . import graphics
 import time
 
+width = 864
+height = 864
 
 # graphics
 cam = graphics.Camera(
@@ -34,6 +36,32 @@ record=False
 def nothing(x):
     pass
 
+def key_matches(key, char):
+    return key in (ord(char.lower()), ord(char.upper()))
+
+def create_animation_window():
+    cv2.namedWindow('animation', cv2.WINDOW_NORMAL)
+    cv2.resizeWindow('animation', width, height)
+
+def set_fullscreen(fullscreen):
+    cv2.setWindowProperty(
+        'animation',
+        cv2.WND_PROP_FULLSCREEN,
+        cv2.WINDOW_FULLSCREEN if fullscreen else cv2.WINDOW_NORMAL
+    )
+
+def draw_keyboard_help(frame, shortcuts, x=10, y=40):
+    for idx, text in enumerate(shortcuts):
+        cv2.putText(
+            frame,
+            text,
+            (x, y + 20 * idx),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.45,
+            (0, 0, 0),
+            1
+        )
+
 
 def animate(t, x, y, z, phi, theta, psi, u, autopilot_mode=[], target=[], waypoints=[], file='output.mp4', multiple_trajectories=False, simultaneous=False, colors=[], names=[], alpha=0, step=1, **kwargs):
     follow = kwargs.get("follow", False)
@@ -42,6 +70,7 @@ def animate(t, x, y, z, phi, theta, psi, u, autopilot_mode=[], target=[], waypoi
     draw_forces = kwargs.get("draw_forces", False)
     record = kwargs.get("record", False)
     close_on_end = kwargs.get("close_on_end", False)
+    fullscreen = False
     
     traj_index = 0
     
@@ -59,7 +88,7 @@ def animate(t, x, y, z, phi, theta, psi, u, autopilot_mode=[], target=[], waypoi
         ori = np.stack([phi,theta,psi]).T
         u_ = u
     
-    cv2.namedWindow('animation')
+    create_animation_window()
     cv2.setMouseCallback('animation', cam.mouse_control)
     cv2.createTrackbar('t', 'animation', 0, t_.shape[0]-1, nothing)
     
@@ -85,7 +114,7 @@ def animate(t, x, y, z, phi, theta, psi, u, autopilot_mode=[], target=[], waypoi
         while fps > 30:
             video_step += 1
             fps = 1 / (dt * video_step)
-        out = cv2.VideoWriter(file, fourcc, fps=fps, frameSize=(864, 864))
+        out = cv2.VideoWriter(file, fourcc, fps=fps, frameSize=(width, height))
 
     while True:
         if auto_play:
@@ -125,21 +154,19 @@ def animate(t, x, y, z, phi, theta, psi, u, autopilot_mode=[], target=[], waypoi
             cam.set_center(np.zeros(3))
 
         # using screen resolution of 1536x864
-        frame = 255*np.ones((864, 864, 3), dtype=np.uint8)
+        frame = 255*np.ones((height, width, 3), dtype=np.uint8)
 
         # text
         cv2.putText(frame, "t = " + str(round(t_[time_index], 2)), (10, 20),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,0,0))
         help_lines = [
             "SPACE=play/pause   ESC=exit   R=record",
-            "P=toggle path   F=follow   S=forces",
+            "P=toggle path   F=follow   S=forces   M=fullscreen/window",
             "1=zoom out   2=zoom in",
         ]
         if multiple_trajectories:
             help_lines.append("J=prev traj   L=next traj")
-        for idx, text in enumerate(help_lines, start=1):
-            cv2.putText(frame, text, (10, 20 + 20 * idx),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0,0,0))
+        draw_keyboard_help(frame, help_lines)
         if multiple_trajectories:
             cv2.putText(frame, "i = " + str(traj_index), (10, 20 + 20 * (len(help_lines) + 1)),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.45, (0,0,0))
@@ -217,7 +244,7 @@ def animate(t, x, y, z, phi, theta, psi, u, autopilot_mode=[], target=[], waypoi
                 break
 
         control = cv2.waitKeyEx(1)
-        if control == 106 and multiple_trajectories:      # J KEY
+        if key_matches(control, 'j') and multiple_trajectories:
             time_index = 0
             start_time = time.time() - t_[time_index]
             traj_index = max(0, traj_index-step)
@@ -226,7 +253,7 @@ def animate(t, x, y, z, phi, theta, psi, u, autopilot_mode=[], target=[], waypoi
             ori = np.stack([phi[traj_index],theta[traj_index],psi[traj_index]]).T
             u_ = u[traj_index]
             path = graphics.create_path([p for p in pos[0::5]])
-        if control == 108 and multiple_trajectories:      # L KEY
+        if key_matches(control, 'l') and multiple_trajectories:
             time_index = 0
             start_time = time.time() - t_[time_index]
             traj_index = min(len(t)-1, traj_index+step)
@@ -235,7 +262,7 @@ def animate(t, x, y, z, phi, theta, psi, u, autopilot_mode=[], target=[], waypoi
             ori = np.stack([phi[traj_index],theta[traj_index],psi[traj_index]]).T
             u_ = u[traj_index]
             path = graphics.create_path([p for p in pos[0::5]])
-        if control == 114:      # R KEY
+        if key_matches(control, 'r'):
             if record:
                 print('recording ended')
                 out.release()
@@ -253,14 +280,17 @@ def animate(t, x, y, z, phi, theta, psi, u, autopilot_mode=[], target=[], waypoi
                     video_step += 1
                     fps = 1/(dt*video_step)
                 print(fps)                    
-                out = cv2.VideoWriter(file, fourcc, fps=fps, frameSize=(864, 864))
+                out = cv2.VideoWriter(file, fourcc, fps=fps, frameSize=(width, height))
             record = not record
-        if control == 102:      # F KEY
+        if key_matches(control, 'f'):
             follow = not follow
-        if control == 112:      # P KEY
+        if key_matches(control, 'p'):
             draw_path = not draw_path
-        if control == 115:      # S KEY
+        if key_matches(control, 's'):
             draw_forces = not draw_forces
+        if key_matches(control, 'm'):
+            fullscreen = not fullscreen
+            set_fullscreen(fullscreen)
         if control == 32:       # SPACE BAR
             auto_play = not auto_play
             start_time = time.time() - t_[time_index]

@@ -1,0 +1,88 @@
+checkpoint_name: null
+conv_block:
+  output_dim: 256
+  value: true
+dataloader:
+  batch_size: 32
+  drop_last: true
+  num_workers: 8
+  pin_memory: false
+dataset:
+  delay_steps: 2
+  input_dim: 19
+  input_labels:
+  - dx
+  - dy
+  - dz
+  - vx
+  - vy
+  - vz
+  - phi
+  - theta
+  - psi
+  - p
+  - q
+  - r
+  - Mx_ext
+  - My_ext
+  - Mz_ext
+  - omega
+  - dt
+  input_size: 19
+  normalization_limits: bebop2_tau_0_06
+  normalized: true
+  output_dim: 4
+  output_labels:
+  - u
+  output_size: 4
+  train_path: datasets/hover_dataset_train_bebop2.npz
+  val_path: datasets/hover_dataset_val_bebop2.npz
+  with_bias: false
+  with_delay: false
+  with_noise: false
+mlp_block:
+  no_layers:
+  - 64
+  - 128
+  - 128
+  - 256
+  value: false
+model:
+  activation: lecun_tanh
+  backbone_dropout: 0.0
+  backbone_layers: 1
+  backbone_units: 128
+  cfc_mode: default
+  hidden_layers:
+  - 120
+  - 120
+  - 120
+  mixed_memory: false
+  ncp:
+    command_neurons: 24
+    inter_fanout: 16
+    inter_neurons: 32
+    motor_fanin: 20
+    recurrent_command_synapses: 16
+    sensory_fanout: 20
+  no_neurons_layer: 64
+  ode_unfolds: 6
+  scale_factor: 1.0
+  type: ltc
+sequencing:
+  seq_len: 1
+  value: true
+train_ablation:
+  applied_features: []
+  applied_groups: []
+  enabled: false
+  name_tags: []
+  remove_feature_groups: []
+  remove_features: []
+  removed_expanded_features: []
+training:
+  logger: false
+  lr: 0.001
+  max_epochs: 20
+  seed: 42
+  wandb_project: Autonomous-Quadrotor-Training

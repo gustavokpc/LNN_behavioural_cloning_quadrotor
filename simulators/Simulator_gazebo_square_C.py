@@ -5,30 +5,39 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
+import os
 from pathlib import Path
 from typing import Iterable
+
+_RUNS_DIR = Path(__file__).resolve().parent / "runs"
+os.environ.setdefault("MPLCONFIGDIR", str(_RUNS_DIR / ".matplotlib"))
 
 import numpy as np
 
 from utils.animation import animate
 from utils.c_controller import CController
 from utils.config import load_yaml
-from utils.dynamics_models import available_dynamics_models, get_dynamics_info, set_dynamics_model
+from utils.dynamics_models import available_dynamics_models, get_dynamics_info, get_dynamics_model, set_dynamics_model
 from utils.quadrotor_sim import body_to_world_trajectory, world_to_body_state
 from utils.quadrotor_sim_c import rollout_c_controller
 
 
 MODEL_PRESETS = {
-    "MLP": ("configs/mlp_epoch=19_val_loss=0.003130.yaml", "C_codes/MLP"),
-    "LTC": ("configs/LTC_64_neurons_seq_1_epoch=18_val_loss=0.000193.yaml", "C_codes/LTC"),
-    "RNN": ("configs/RNN_64_neurons_seq_1_epoch=17_val_loss=0.000147.yaml", "C_codes/RNN"),
-    "CONV_CFC_DEFAULT": ("configs/conv_cfc_default_n64_epoch=17_val_loss=0.000326.yaml", "C_codes/CONV_CFC_DEFAULT"),
-    "CFC": ("configs/new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.yaml", "C_codes/CFC"),
-    "CFC_PURE": ("configs/new_CFC_pure_64_neurons_seq_1_epoch=17_val_loss=0.000203.yaml", "C_codes/CFC_PURE"),
-    "CTRNN": ("configs/new_CTRNN_64_neurons_seq_1_epoch=19_val_loss=0.000150.yaml", "C_codes/CTRNN"),
-    "GRU": ("configs/new_GRU_64_neurons_seq_1_epoch=19_val_loss=0.000088.yaml", "C_codes/GRU"),
-    "LSTM": ("configs/new_LSTM_64_neurons_seq_1_epoch=17_val_loss=0.000092.yaml", "C_codes/LSTM"),
-    "NCP_CFC": ("configs/new_NCP_CFC_60_neurons_seq_1_epoch=18_val_loss=0.000143.yaml", "C_codes/NCP_CFC"),
+    "MLP": ("configs/bebop1/mlp_epoch=19_val_loss=0.003130.yaml", "C_codes/bebop1/MLP"),
+    "LTC": ("configs/bebop1/LTC_64_neurons_seq_1_epoch=18_val_loss=0.000193.yaml", "C_codes/bebop1/LTC"),
+    "RNN": ("configs/bebop1/RNN_64_neurons_seq_1_epoch=17_val_loss=0.000147.yaml", "C_codes/bebop1/RNN"),
+    "CONV_CFC_DEFAULT": ("configs/bebop1/conv_cfc_default_n64_epoch=17_val_loss=0.000326.yaml", "C_codes/bebop1/CONV_CFC_DEFAULT"),
+    "CFC": ("configs/bebop1/new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.yaml", "C_codes/bebop1/CFC"),
+    "CFC_PURE": ("configs/bebop1/new_CFC_pure_64_neurons_seq_1_epoch=17_val_loss=0.000203.yaml", "C_codes/bebop1/CFC_PURE"),
+    "CTRNN": ("configs/bebop1/new_CTRNN_64_neurons_seq_1_epoch=19_val_loss=0.000150.yaml", "C_codes/bebop1/CTRNN"),
+    "GRU": ("configs/bebop1/new_GRU_64_neurons_seq_1_epoch=19_val_loss=0.000088.yaml", "C_codes/bebop1/GRU"),
+    "LSTM": ("configs/bebop1/new_LSTM_64_neurons_seq_1_epoch=17_val_loss=0.000092.yaml", "C_codes/bebop1/LSTM"),
+    "NCP_CFC": ("configs/bebop1/new_NCP_CFC_60_neurons_seq_1_epoch=18_val_loss=0.000143.yaml", "C_codes/bebop1/NCP_CFC"),
+    "NOVA_VERSAOZE": (
+        "configs/bebop2/NOVA_VERSAOZE_BEBP2_conv_cfc_default_n64_bebop2_epoch=19_val_loss=0.000098.yaml",
+        "C_codes/bebop2/NOVA_VERSAOZE_BEBP2_CONV_CFC",
+    ),
 }
 DEFAULT_STANDBY_ENU = np.asarray([0.0, 0.0, 1.0], dtype=np.float64)
 DEFAULT_SQUARE_ENU = np.asarray(
@@ -40,6 +49,7 @@ DEFAULT_SQUARE_ENU = np.asarray(
     ],
     dtype=np.float64,
 )
+DEFAULT_INITIAL_MOTOR_RPM = 7750.0
 
 
 def resolve_model_paths(project_root: Path, model: str, model_config: Path | None, c_model_dir: Path | None) -> tuple[Path, Path]:
@@ -88,6 +98,22 @@ def _wrap_angle(angle: float) -> float:
     return angle
 
 
+def _override_dynamics_tau(tau: float | None) -> None:
+    if tau is None:
+        return
+    if tau <= 0.0:
+        raise ValueError("--tau must be positive.")
+    model = get_dynamics_model()
+    if not hasattr(model, "TAU"):
+        raise AttributeError(f"Dynamics model '{model.INFO.name}' does not expose a TAU constant.")
+    model.TAU = float(tau)
+    model.INFO = dataclasses.replace(
+        model.INFO,
+        description=f"{model.INFO.description} Runtime motor time constant override tau={tau:.6g}s.",
+        tau=float(tau),
+    )
+
+
 def simulate_gazebo_square(
     config_model: dict,
     project_root: Path,
@@ -102,9 +128,14 @@ def simulate_gazebo_square(
     waypoint_alt_m: float,
     c_model_dir: Path,
     dynamics_model: str,
+    tau: float | None = None,
+    input_noise_std: dict[str, float] | None = None,
+    input_noise_seed: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     set_dynamics_model(dynamics_model)
+    _override_dynamics_tau(tau)
     dynamics_info = get_dynamics_info()
+    input_noise_rng = np.random.default_rng(input_noise_seed) if input_noise_std else None
     standby_enu, square_enu = _square_waypoints(
         start_alt_m=start_alt_m,
         waypoint_alt_m=waypoint_alt_m,
@@ -112,7 +143,8 @@ def simulate_gazebo_square(
     square_world = np.asarray([_enu_to_network_world(wp) for wp in square_enu], dtype=np.float64)
     current_world = np.zeros(19, dtype=np.float64)
     current_world[0:3] = _enu_to_network_world(standby_enu)
-    current_world[15:19] = dynamics_info.omega_mid
+    initial_motor_rpm = DEFAULT_INITIAL_MOTOR_RPM if dynamics_info.name == "quadrotor_sim_matlab" else dynamics_info.omega_mid
+    current_world[15:19] = initial_motor_rpm
 
     controller = CController(c_model_dir)
     controller.reset()
@@ -123,6 +155,22 @@ def simulate_gazebo_square(
     total_states: list[np.ndarray] = []
     total_actions: list[np.ndarray] = []
     target_trace: list[np.ndarray] = []
+    full_input_labels = config_model["dataset"]["input_labels"]
+    input_labels_without_time = [label for label in full_input_labels if label not in {"t", "dt"}]
+
+    def _expanded_input_size(labels: list[str]) -> int:
+        return sum(4 if label == "omega" else 1 for label in labels)
+
+    if _expanded_input_size(full_input_labels) == controller.num_states:
+        c_input_labels = full_input_labels
+    elif _expanded_input_size(input_labels_without_time) == controller.num_states:
+        c_input_labels = input_labels_without_time
+    else:
+        raise ValueError(
+            f"C controller expects {controller.num_states} inputs, but config expands to "
+            f"{_expanded_input_size(full_input_labels)} with time and "
+            f"{_expanded_input_size(input_labels_without_time)} without time."
+        )
 
     initial_distance = float(np.linalg.norm(standby_enu - square_enu[gate_index]))
     print(f"Initial ENU position STDBY: {standby_enu}")
@@ -143,13 +191,15 @@ def simulate_gazebo_square(
         states_body, actions = rollout_c_controller(
             controller=controller,
             initial_state=initial_body,
-            input_labels=config_model["dataset"]["input_labels"],
+            input_labels=c_input_labels,
             dt=dt,
             horizon_steps=max_total_steps - elapsed_steps,
             integration_method=integration_method,
             implicit_iters=implicit_iters,
             stop_fn=lambda state, step: np.linalg.norm(state[0:3]) < dist_error,
             reset_controller=reset_each_waypoint,
+            input_noise_std=input_noise_std,
+            rng=input_noise_rng,
         )
 
         states_world = body_to_world_trajectory(states_body)
@@ -167,6 +217,9 @@ def simulate_gazebo_square(
 
         current_world = states_world[-1].copy()
         elapsed_steps += max(len(states_world) - 1, 0)
+        reached_target = float(np.linalg.norm(current_world[0:3] - target)) < dist_error
+        if not reached_target:
+            break
         gates_passed += 1
         gate_index = (gate_index + 1) % len(square_world)
 
@@ -214,6 +267,81 @@ def _animate_square(
     )
 
 
+def _plot_all_signals(
+    states_world: np.ndarray,
+    actions: np.ndarray,
+    dt: float,
+    output_path: Path,
+    title: str,
+) -> None:
+    if actions.size == 0:
+        raise ValueError("No actions were generated by the simulation.")
+
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    steps = min(len(states_world), len(actions))
+    states = states_world[:steps]
+    actions01 = np.asarray(actions[:steps], dtype=np.float64)
+    time = np.arange(steps, dtype=np.float64) * dt
+    dynamics_info = get_dynamics_info()
+
+    pos_enu = _network_world_to_enu(states[:, 0:3])
+    vel_enu = _network_world_to_enu(states[:, 3:6])
+    rpm_obs = states[:, 15:19]
+    rpm_ref = dynamics_info.omega_min + np.clip(actions01, 0.0, 1.0) * (
+        dynamics_info.omega_max - dynamics_info.omega_min
+    )
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig, axes = plt.subplots(7, 1, figsize=(18, 22), sharex=True)
+    for ax in axes:
+        ax.set_facecolor("#fff1df")
+        ax.grid(True, alpha=0.25)
+
+    axes[0].plot(time, pos_enu[:, 0], label="pos_x")
+    axes[0].plot(time, pos_enu[:, 1], label="pos_y")
+    axes[0].plot(time, pos_enu[:, 2], label="pos_z")
+    axes[0].set_ylabel("pos [m]")
+
+    axes[1].plot(time, vel_enu[:, 0], label="vel_x")
+    axes[1].plot(time, vel_enu[:, 1], label="vel_y")
+    axes[1].plot(time, vel_enu[:, 2], label="vel_z")
+    axes[1].set_ylabel("vel [m/s]")
+
+    axes[2].plot(time, states[:, 6], label="att_phi")
+    axes[2].plot(time, states[:, 7], label="att_theta")
+    axes[2].plot(time, states[:, 8], label="att_psi")
+    axes[2].set_ylabel("att [rad]")
+
+    axes[3].plot(time, states[:, 9], label="rate_p")
+    axes[3].plot(time, states[:, 10], label="rate_q")
+    axes[3].plot(time, states[:, 11], label="rate_r")
+    axes[3].set_ylabel("rates [rad/s]")
+
+    for idx in range(4):
+        axes[4].plot(time, rpm_obs[:, idx], label=f"rpm_obs_{idx + 1}")
+    axes[4].set_ylabel("rpm_obs")
+
+    for idx in range(4):
+        axes[5].plot(time, rpm_ref[:, idx], label=f"rpm_ref_{idx + 1}")
+    axes[5].set_ylabel("rpm_ref")
+
+    for idx in range(4):
+        axes[6].plot(time, actions01[:, idx], label=f"cmd_u{idx + 1}")
+    axes[6].set_ylabel("cmd [0-1]")
+    axes[6].set_xlabel("time [s]")
+
+    for ax in axes:
+        ax.legend(loc="upper right", fontsize=8)
+    fig.suptitle(title)
+    fig.tight_layout()
+    fig.savefig(output_path, dpi=160)
+    plt.close(fig)
+
+
 def parse_args(cli_args: Iterable[str] | None = None) -> argparse.Namespace:
     default_root = Path(__file__).resolve().parents[1]
     parser = argparse.ArgumentParser(description="Simulate the square waypoint path with a C-exported model.")
@@ -225,6 +353,11 @@ def parse_args(cli_args: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--dt", type=float, default=0.01)
     parser.add_argument("--time-simulation", type=float, default=60.0)
     parser.add_argument("--dist-error", type=float, default=0.1)
+    parser.add_argument("--tau", type=float, default=None, help="Optional runtime motor time constant override in seconds.")
+    parser.add_argument("--input-noise-p-sigma", type=float, default=0.0, help="Gaussian input noise sigma for p [rad/s].")
+    parser.add_argument("--input-noise-q-sigma", type=float, default=0.0, help="Gaussian input noise sigma for q [rad/s].")
+    parser.add_argument("--input-noise-r-sigma", type=float, default=0.0, help="Gaussian input noise sigma for r [rad/s].")
+    parser.add_argument("--input-noise-seed", type=int, default=None)
     parser.add_argument("--integration-method", default="rk4")
     parser.add_argument("--implicit-iters", type=int, default=1)
     parser.add_argument("--start-waypoint-index", type=int, default=3)
@@ -232,6 +365,18 @@ def parse_args(cli_args: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--waypoint-alt", type=float, default=1.5)
     parser.add_argument("--reset-each-waypoint", action="store_true")
     parser.add_argument("--no-animation", action="store_true")
+    parser.add_argument("--plot-actions", action="store_true")
+    parser.add_argument("--plot-signals", action="store_true")
+    parser.add_argument(
+        "--action-plot-output",
+        type=Path,
+        default=Path(__file__).resolve().parent / "runs" / "cfc_sl_bebop2_actions.png",
+    )
+    parser.add_argument(
+        "--signals-plot-output",
+        type=Path,
+        default=Path(__file__).resolve().parent / "runs" / "square_all_state_commands.png",
+    )
     parser.add_argument("--record", action="store_true")
     parser.add_argument("--output", default="gazebo_square_cfc.mp4")
     parser.add_argument("--auto-play", action=argparse.BooleanOptionalAction, default=True)
@@ -242,6 +387,12 @@ def main(cli_args: Iterable[str] | None = None) -> None:
     args = parse_args(cli_args)
     model_config, c_model_dir = resolve_model_paths(args.project_root, args.model, args.model_config, args.c_model_dir)
     config_model = load_yaml(model_config)
+    input_noise_std = {
+        "p": args.input_noise_p_sigma,
+        "q": args.input_noise_q_sigma,
+        "r": args.input_noise_r_sigma,
+    }
+    input_noise_std = {key: value for key, value in input_noise_std.items() if value > 0.0}
     standby_enu, square_enu = _square_waypoints(
         start_alt_m=args.start_alt,
         waypoint_alt_m=args.waypoint_alt,
@@ -260,6 +411,9 @@ def main(cli_args: Iterable[str] | None = None) -> None:
         waypoint_alt_m=args.waypoint_alt,
         c_model_dir=c_model_dir,
         dynamics_model=args.dynamics_model,
+        tau=args.tau,
+        input_noise_std=input_noise_std or None,
+        input_noise_seed=args.input_noise_seed,
     )
 
     total_time = max(len(states_world) - 1, 0) * args.dt
@@ -275,6 +429,105 @@ def main(cli_args: Iterable[str] | None = None) -> None:
     print(f"Dynamics model: {get_dynamics_info().name}")
     print(f"Model config: {model_config}")
     print(f"C model dir: {c_model_dir}")
+    if input_noise_std:
+        print(f"Input noise std: {input_noise_std} | seed={args.input_noise_seed}")
+
+    if args.plot_actions:
+        import csv
+        _RUNS_DIR.mkdir(parents=True, exist_ok=True)
+
+        import matplotlib
+
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        if actions.size == 0:
+            raise ValueError("No actions were generated by the simulation.")
+
+        output_stem = args.action_plot_output.with_suffix("") if args.action_plot_output.suffix else args.action_plot_output
+        output_stem.parent.mkdir(parents=True, exist_ok=True)
+        png_path = output_stem.with_suffix(".png")
+        csv_path = output_stem.with_suffix(".csv")
+
+        dynamics_info = get_dynamics_info()
+        actions01 = np.asarray(actions, dtype=np.float64)
+        rpm = dynamics_info.omega_min + np.clip(actions01, 0.0, 1.0) * (
+            dynamics_info.omega_max - dynamics_info.omega_min
+        )
+        time = np.arange(actions01.shape[0], dtype=np.float64) * args.dt
+
+        if len(actions01) >= 2:
+            delta_cmd = np.diff(actions01, axis=0)
+            delta_rpm = np.diff(rpm, axis=0)
+            stats = []
+            for idx in range(4):
+                stats.append(
+                    f"u{idx + 1}: max_delta={np.max(np.abs(delta_cmd[:, idx])):.4f} "
+                    f"({np.max(np.abs(delta_rpm[:, idx])):.1f} rpm), "
+                    f"mean_delta={np.mean(np.abs(delta_cmd[:, idx])):.4f} "
+                    f"({np.mean(np.abs(delta_rpm[:, idx])):.1f} rpm)"
+                )
+            print("Episode 1 action smoothness | " + " | ".join(stats))
+
+        fig, axes = plt.subplots(4, 1, figsize=(12, 10), sharex=True)
+        colors = ["tab:blue", "tab:orange", "tab:green", "tab:red"]
+        for motor_idx in range(4):
+            axes[motor_idx].plot(
+                time,
+                rpm[:, motor_idx],
+                color=colors[motor_idx],
+                alpha=0.95,
+                linewidth=1.1,
+                label=f"motor {motor_idx + 1}",
+            )
+        for motor_idx, ax in enumerate(axes):
+            ax.set_ylabel(f"motor {motor_idx + 1}\n[rpm]")
+            ax.grid(True, alpha=0.25)
+            ax.legend(loc="upper right", fontsize=8)
+        axes[-1].set_xlabel("time [s]")
+        fig.suptitle(f"square_waypoints CFC actions - {c_model_dir.name}")
+        fig.tight_layout()
+        fig.savefig(png_path, dpi=160)
+        plt.close(fig)
+
+        delta_rpm = np.vstack([np.zeros((1, 4), dtype=np.float64), np.diff(rpm, axis=0)])
+        with csv_path.open("w", newline="") as csv_file:
+            writer = csv.writer(csv_file)
+            writer.writerow(
+                [
+                    "episode",
+                    "step",
+                    "time_s",
+                    "u1_rpm",
+                    "u2_rpm",
+                    "u3_rpm",
+                    "u4_rpm",
+                    "du1_rpm",
+                    "du2_rpm",
+                    "du3_rpm",
+                    "du4_rpm",
+                ]
+            )
+            for step_idx, (time_s, rpm_row, delta_row) in enumerate(zip(time, rpm, delta_rpm, strict=True)):
+                writer.writerow([1, step_idx, time_s, *rpm_row, *delta_row])
+
+        print(f"Action plot saved to {png_path}")
+        print(f"Action CSV saved to {csv_path}")
+
+    if args.plot_signals:
+        output_path = args.signals_plot_output
+        _plot_all_signals(
+            states_world=states_world,
+            actions=actions,
+            dt=args.dt,
+            output_path=output_path,
+            title=(
+                f"square CFC all signals | dynamics={get_dynamics_info().name} "
+                f"tau={get_dynamics_info().tau:.6g}s dist_error={args.dist_error:g} "
+                f"input_noise={input_noise_std or {}}"
+            ),
+        )
+        print(f"Signals plot saved to {output_path}")
 
     if not args.no_animation:
         _animate_square(

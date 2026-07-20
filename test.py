@@ -46,6 +46,10 @@ def _prepare_arrays(config_model: dict, config_test: dict) -> tuple[np.ndarray, 
         starting_trajectory=starting_trajectory,
         desired_trajectories=desired_trajectories,
         normalized=config_model["dataset"].get("normalized", True),
+        normalization_limits=config_model["dataset"].get(
+            "normalization_limits",
+            config_model["dataset"].get("bebop_model", "bebop1"),
+        ),
     )
 
     if config_model.get("sequencing", {}).get("value", False):
