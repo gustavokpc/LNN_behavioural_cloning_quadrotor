@@ -43,7 +43,10 @@ class BCActorCriticExtractor(th.nn.Module):
         self.bc_model.train()
 
         input_labels = self.bc_config["dataset"]["input_labels"]
-        global_min, global_max = get_norm_vectors(input_labels)
+        normalization_limits = self.bc_config["dataset"].get(
+            "normalization_limits", self.bc_config["dataset"].get("bebop_model", "bebop1")
+        )
+        global_min, global_max = get_norm_vectors(input_labels, normalization_limits)
         self.register_buffer("global_min", th.tensor(global_min.reshape(-1), dtype=th.float32))
         self.register_buffer("global_max", th.tensor(global_max.reshape(-1), dtype=th.float32))
         self.value_net = th.nn.Sequential(
@@ -97,7 +100,10 @@ class FrozenBCController(th.nn.Module):
             param.requires_grad_(False)
 
         input_labels = self.bc_config["dataset"]["input_labels"]
-        global_min, global_max = get_norm_vectors(input_labels)
+        normalization_limits = self.bc_config["dataset"].get(
+            "normalization_limits", self.bc_config["dataset"].get("bebop_model", "bebop1")
+        )
+        global_min, global_max = get_norm_vectors(input_labels, normalization_limits)
         self.register_buffer("global_min", th.tensor(global_min.reshape(-1), dtype=th.float32, device=self.device))
         self.register_buffer("global_max", th.tensor(global_max.reshape(-1), dtype=th.float32, device=self.device))
 

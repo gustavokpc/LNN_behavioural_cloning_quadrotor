@@ -13,18 +13,23 @@ import numpy as np
 
 
 CHECKPOINT_TO_C_DIR = {
-    "mlp_epoch=19_val_loss=0.003130": "MLP",
-    "LTC_64_neurons_seq_1_epoch=18_val_loss=0.000193": "LTC",
-    "RNN_64_neurons_seq_1_epoch=17_val_loss=0.000147": "RNN",
-    "conv_cfc_default_n64_epoch=17_val_loss=0.000326": "CONV_CFC_DEFAULT",
-    "new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142": "CFC",
-    "new_CFC_pure_64_neurons_seq_1_epoch=17_val_loss=0.000203": "CFC_PURE",
-    "new_CTRNN_64_neurons_seq_1_epoch=19_val_loss=0.000150": "CTRNN",
-    "new_GRU_64_neurons_seq_1_epoch=19_val_loss=0.000088": "GRU",
-    "new_LSTM_64_neurons_seq_1_epoch=17_val_loss=0.000092": "LSTM",
-    "new_NCP_CFC_60_neurons_seq_1_epoch=18_val_loss=0.000143": "NCP_CFC",
-    "NOVA_VERSAOZE_BEBP2_conv_cfc_default_n64_bebop2_epoch=19_val_loss=0.000098": "NOVA_VERSAOZE_BEBP2_CONV_CFC",
-    "ERRADO_new_conv_bebop2_CFC_64_neurons_epoch=18_val_loss=0.000127": "ERRADO_BEBOP2_CONV_CFC",
+    "mlp_epoch=19_val_loss=0.003130": "bebop1/MLP",
+    "LTC_64_neurons_seq_1_epoch=18_val_loss=0.000193": "bebop1/LTC",
+    "RNN_64_neurons_seq_1_epoch=17_val_loss=0.000147": "bebop1/RNN",
+    "conv_cfc_default_n64_epoch=17_val_loss=0.000326": "bebop1/CONV_CFC_DEFAULT",
+    "new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142": "bebop1/CFC",
+    "new_CFC_pure_64_neurons_seq_1_epoch=17_val_loss=0.000203": "bebop1/CFC_PURE",
+    "new_CTRNN_64_neurons_seq_1_epoch=19_val_loss=0.000150": "bebop1/CTRNN",
+    "new_GRU_64_neurons_seq_1_epoch=19_val_loss=0.000088": "bebop1/GRU",
+    "new_LSTM_64_neurons_seq_1_epoch=17_val_loss=0.000092": "bebop1/LSTM",
+    "new_NCP_CFC_60_neurons_seq_1_epoch=18_val_loss=0.000143": "bebop1/NCP_CFC",
+    "BBP1_NOISE_conv_cfc_default_n64_bebop1_epoch=19_val_loss=0.000149": "bebop1/BBP1_NOISE_CONV_CFC",
+    "bbp2_conv_cfc_default_n64_epoch=19_val_loss=0.000143": "bebop2/BBP2_CONV_CFC",
+    "BBP2_NOISE_conv_cfc_default_n64_epoch=19_val_loss=0.000142": "bebop2/BBP2_NOISE_CONV_CFC",
+    "CORRECTNORMBBP2_conv_cfc_default_n64_bebop2_epoch=19_val_loss=0.000097": "bebop2/CORRECTNORMBBP2_CONV_CFC_NEWNORM",
+    "NEWDATASETBBP2_conv_cfc_default_n64_bebop2_epoch=18_val_loss=0.000100": "bebop2/NEWDATASETBBP2_CONV_CFC",
+    "NOVA_VERSAOZE_BEBP2_conv_cfc_default_n64_bebop2_epoch=19_val_loss=0.000098": "bebop2/NOVA_VERSAOZE_BEBP2_CONV_CFC",
+    "ERRADO_new_conv_bebop2_CFC_64_neurons_epoch=18_val_loss=0.000127": "bebop2/ERRADO_BEBOP2_CONV_CFC",
 }
 
 

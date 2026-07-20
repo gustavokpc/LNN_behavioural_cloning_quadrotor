@@ -67,6 +67,15 @@ def _action_output_stem(args: argparse.Namespace) -> Path:
     return RL_ROOT / "runs" / "action_plots" / track_artifact / args.policy_type / checkpoint_stem
 
 
+def _signals_output_path(args: argparse.Namespace) -> Path:
+    if args.signals_plot_output:
+        output = Path(args.signals_plot_output)
+        return output if output.suffix else output.with_suffix(".png")
+    checkpoint_stem = _safe_filename(Path(args.cont).stem)
+    track_artifact = _track_artifact_name(args.track)
+    return RL_ROOT / "runs" / "signal_plots" / track_artifact / args.policy_type / f"{checkpoint_stem}.png"
+
+
 def _commands01_to_rpm(actions01: np.ndarray) -> np.ndarray:
     info = quadrotor_sim_matlab.INFO
     return info.omega_min + np.clip(actions01, 0.0, 1.0) * (info.omega_max - info.omega_min)
@@ -184,8 +193,18 @@ def make_env(
                 "--track figure8_gates uses legacy-style observations; "
                 "choose --policy-type ppo, recurrent_ppo, or recurrent_ppo_ltc."
             )
-        return Bebop2Figure8GatesEnv(
+        figure8_start_pos = None
+        figure8_start_pos_jitter = 0.5
+        figure8_start_pos_enu = getattr(args, "figure8_start_pos_enu", None)
+        if figure8_start_pos_enu is not None:
+            x_enu, y_enu, z_enu = figure8_start_pos_enu
+            # Paparazzi/Gazebo ENU -> controller world frame {Y, X, -Z}.
+            figure8_start_pos = np.asarray([y_enu, x_enu, -z_enu], dtype=np.float32)
+            figure8_start_pos_jitter = 0.0
+
+        env_kwargs = dict(
             num_envs=num_envs,
+            start_gate=getattr(args, "figure8_start_gate", 0),
             gates_ahead=args.gates_ahead,
             gate_size=args.gate_size,
             dt=args.dt,
@@ -206,6 +225,10 @@ def make_env(
             action_range=args.figure8_action_range,
             seed=seed,
         )
+        if figure8_start_pos is not None:
+            env_kwargs["start_pos"] = figure8_start_pos
+            env_kwargs["start_pos_jitter"] = figure8_start_pos_jitter
+        return Bebop2Figure8GatesEnv(**env_kwargs)
     if terminate_on_waypoint is None:
         terminate_on_waypoint = True
     normalize_observations = bool(args.normalize_observations and args.policy_type in {"ppo", "recurrent_ppo", "recurrent_ppo_ltc"})
@@ -352,6 +375,7 @@ def render(args: argparse.Namespace) -> None:
         state = None
         episode_start = np.ones((env.num_envs,), dtype=bool)
         figure8_actions = []
+        figure8_states_world = []
         figure8_times = []
         figure8_step = 0
 
@@ -365,6 +389,10 @@ def render(args: argparse.Namespace) -> None:
             )
             obs, _, dones, _ = env.step(actions)
             figure8_actions.append(env.action_to_bebop_command(env.actions[0].astype(np.float64)))
+            target = env.gate_pos[env.target_gates[0] % env.num_gates].astype(np.float64)
+            state_world = body_to_world_state(env.sim_states[0].astype(np.float64))
+            state_world[0:3] += target
+            figure8_states_world.append(state_world)
             figure8_times.append(figure8_step * args.dt)
             figure8_step += 1
             episode_start = dones
@@ -392,6 +420,18 @@ def render(args: argparse.Namespace) -> None:
                 args,
                 title=f"{args.track} {args.policy_type} actions - {Path(args.cont).name}",
             )
+        if args.plot_signals and figure8_actions:
+            from ..simulators.Simulator_gazebo_square_C import _plot_all_signals
+
+            signals_output = _signals_output_path(args)
+            _plot_all_signals(
+                states_world=np.asarray(figure8_states_world, dtype=np.float64),
+                actions=np.asarray(figure8_actions, dtype=np.float64),
+                dt=args.dt,
+                output_path=signals_output,
+                title=f"{args.track} {args.policy_type} signals - {Path(args.cont).name}",
+            )
+            print(f"Signals plot saved to {signals_output}")
         env.close()
         return
 
@@ -500,7 +540,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--bc-config",
         type=str,
-        default=str(PROJECT_ROOT / "configs/new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.yaml"),
+        default=str(PROJECT_ROOT / "configs/bebop1/new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.yaml"),
     )
     parser.add_argument(
         "--bc-checkpoint",
@@ -527,6 +567,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--initialize-at-random-waypoints", action="store_true")
     parser.add_argument("--initialize-at-random-gates", action="store_true")
     parser.add_argument("--initialize-uniform", action="store_true")
+    parser.add_argument(
+        "--figure8-start-pos-enu",
+        type=float,
+        nargs=3,
+        metavar=("X", "Y", "Z"),
+        default=None,
+        help=(
+            "Exact figure-8 start position in Paparazzi/Gazebo ENU coordinates. "
+            "For example: --figure8-start-pos-enu 1.9 1.0 1.0."
+        ),
+    )
+    parser.add_argument(
+        "--figure8-start-gate",
+        type=int,
+        choices=range(8),
+        default=0,
+        metavar="{0..7}",
+        help="First target gate in figure-8 mode: 0=RL_F8_1, ..., 7=RL_F8_8.",
+    )
     parser.add_argument("--num-state-history", type=int, default=0)
     parser.add_argument("--num-action-history", type=int, default=0)
     parser.add_argument("--history-step-size", type=int, default=1)
@@ -550,6 +609,12 @@ def parse_args() -> argparse.Namespace:
         "--action-plot-output",
         default="",
         help="Optional output path for --plot-actions. Defaults to rl/runs/action_plots/<track>/<policy>/<checkpoint>.png/.csv.",
+    )
+    parser.add_argument("--plot-signals", action="store_true")
+    parser.add_argument(
+        "--signals-plot-output",
+        default="",
+        help="Optional PNG path for --plot-signals. Defaults to rl/runs/signal_plots/<track>/<policy>/<checkpoint>.png.",
     )
     parser.add_argument("--log-std-init", type=float, default=-3.0)
     args = parser.parse_args()

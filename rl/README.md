@@ -299,6 +299,8 @@ Render a trained figure-8 checkpoint with the legacy gate viewer:
 | `--initialize-at-random-waypoints` | disabled | Reset episodes near random waypoints instead of the start point. |
 | `--initialize-at-random-gates` | disabled | Reset episodes near random gates in `figure8_gates`. |
 | `--initialize-uniform` | disabled | Reset uniformly over the track area and target the nearest valid gate in `figure8_gates`. |
+| `--figure8-start-pos-enu X Y Z` | disabled | Start at an exact Paparazzi/Gazebo ENU position in `figure8_gates`; for example, `1.9 1.0 1.0` for `CLIMB`. |
+| `--figure8-start-gate {0..7}` | `0` | Select the first target gate: `0` is `RL_F8_1`, ..., `7` is `RL_F8_8`. |
 | `--render` | disabled | Run visualization/evaluation instead of training. |
 | `--render-steps` | `2000` | Maximum steps collected per rendered attempt. |
 | `--render-episodes` | `1` | Number of attempts to visualize. |

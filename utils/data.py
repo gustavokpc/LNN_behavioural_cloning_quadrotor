@@ -15,7 +15,7 @@ import torch
 import os
 import numpy as np
 from numpy.lib.stride_tricks import sliding_window_view
-from .normalization_limits import GLOBAL_MAX, GLOBAL_MIN
+from .normalization_limits import get_normalization_limits
 
 
 def expand_feature_labels(labels):
@@ -76,35 +76,39 @@ class DatasetController(Dataset):
         return self.input[idx], self.output[idx]
 
 
-def get_norm_vectors(labels):
+def get_norm_vectors(labels, normalization_limits='bebop1'):
     """
     Build normalization vectors (min and max) for each feature in `labels`.
 
     Args:
         labels (list[str]): List of feature names to normalize.
+        normalization_limits (str): Named profile from ``normalization_limits.py``.
     Returns:
         global_min (np.ndarray): Min values reshaped for broadcasting.
         global_max (np.ndarray): Max values reshaped for broadcasting.
     """
+    limits_min, limits_max = get_normalization_limits(normalization_limits)
     global_min = []
     global_max = []
 
-    # Collect limits for all known keys
     for key in labels:
-        if key in GLOBAL_MIN:
-            global_min.append(GLOBAL_MIN[key])
-            global_max.append(GLOBAL_MAX[key])
-
-    # Extend omega entries if present (4 motors)
-    if 'omega' in labels or 'omega1' in labels:
-        # Use dedicated min/max for angular velocity
-        global_min.extend([GLOBAL_MIN['omega_min']] * 4)
-        global_max.extend([GLOBAL_MAX['omega_max']] * 4)
-
-    # Ensure time limits are bounded between 0 and 1 if necessary
-    if ('t' in labels) or ('dt' in labels):
-        global_min.append(0)
-        global_max.append(1)
+        if key == 'omega':
+            global_min.extend([limits_min['omega_min']] * 4)
+            global_max.extend([limits_max['omega_max']] * 4)
+        elif key.startswith('omega') and key[5:].isdigit():
+            global_min.append(limits_min['omega_min'])
+            global_max.append(limits_max['omega_max'])
+        elif key in {'t', 'dt'}:
+            global_min.append(0.0)
+            global_max.append(1.0)
+        elif key in limits_min and key in limits_max:
+            global_min.append(limits_min[key])
+            global_max.append(limits_max[key])
+        else:
+            raise KeyError(
+                f"No normalization limits for feature {key!r} in profile "
+                f"{normalization_limits!r}."
+            )
 
     # Convert to arrays and reshape to (1, features, 1)
     global_min = np.array(global_min)[None, :, None]
@@ -120,7 +124,9 @@ def get_data(input_labels,
              desired_trajectories=None,
              normalized=True,
              with_noise=False,
-             with_bias=False):
+             with_bias=False,
+             normalization_limits='bebop1',
+             bebop_model=None):
     """
     Load and preprocess specified trajectories from a .npz dataset file.
 
@@ -137,12 +143,19 @@ def get_data(input_labels,
         path (str): The dataset path where the values can be taken from as .npz format.
         starting_trajectory (int): The trajectory index where to start taking data from.
         desired_trajectories (int): The number of consecutive trajectories to be processed.
-        normalized (bool): If normalised is necessary, use this
+        normalized (bool): Whether input normalization should be applied.
+        normalization_limits (str): Named normalization profile. The legacy
+            ``bebop_model`` argument is accepted as an alias.
 
     Returns:
         reduced_array_input  (np.ndarray): Shape (T_selected, features, timesteps).
         reduced_array_output (np.ndarray): Shape (T_selected, features, timesteps).
     """
+    if bebop_model is not None:
+        if normalization_limits != 'bebop1':
+            raise ValueError("Use either normalization_limits or bebop_model, not both.")
+        normalization_limits = bebop_model
+
     # Determine absolute file path
     cur_path = os.path.dirname(__file__)
     dataset_path = os.path.join(cur_path, '..', path)
@@ -232,7 +245,7 @@ def get_data(input_labels,
 
     # Normalize features to [0,1] range if requested
     if normalized:
-        global_min, global_max = get_norm_vectors(input_labels)
+        global_min, global_max = get_norm_vectors(input_labels, normalization_limits)
         reduced_array_input = (reduced_array_input - global_min) / (global_max - global_min + 1e-10)
 
     if with_noise:

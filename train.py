@@ -80,6 +80,10 @@ def _default_checkpoint_name(config: dict) -> str:
     for tag in train_ablation_cfg.get("name_tags", []):
         parts.append(str(tag))
 
+    dataset_cfg = config.get("dataset", {})
+    norm_profile = dataset_cfg.get("normalization_limits", dataset_cfg.get("bebop_model", "bebop1"))
+    parts.append(str(norm_profile).strip())
+
     return "_".join(_sanitize_name_part(part) for part in parts if str(part).strip()) or "controller"
 
 
@@ -139,13 +143,19 @@ def _prepare_arrays(config: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray, n
         path=dataset_cfg["train_path"],
         normalized=dataset_cfg.get("normalized", True),
         with_noise=dataset_cfg.get("with_noise", False),
-        with_bias=dataset_cfg.get("with_bias", False)
+        with_bias=dataset_cfg.get("with_bias", False),
+        normalization_limits=dataset_cfg.get(
+            "normalization_limits", dataset_cfg.get("bebop_model", "bebop1")
+        ),
     )
     val_input, val_output = get_data(
         input_labels=dataset_cfg["input_labels"],
         output_labels=dataset_cfg["output_labels"],
         path=dataset_cfg["val_path"],
-        normalized=dataset_cfg.get("normalized", True)
+        normalized=dataset_cfg.get("normalized", True),
+        normalization_limits=dataset_cfg.get(
+            "normalization_limits", dataset_cfg.get("bebop_model", "bebop1")
+        ),
     )
 
     if config.get("sequencing", {}).get("value", False):

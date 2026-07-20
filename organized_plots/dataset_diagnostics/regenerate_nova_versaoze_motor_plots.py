@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import importlib
 import sys
 from pathlib import Path
 
@@ -17,7 +16,7 @@ REPO_ROOT = PROJECT.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from LNN_behavioural_cloning_quadrotor.utils.config import load_yaml
-from LNN_behavioural_cloning_quadrotor.utils.data import expand_feature_labels
+from LNN_behavioural_cloning_quadrotor.utils.data import expand_feature_labels, get_norm_vectors
 from LNN_behavioural_cloning_quadrotor.utils.dynamics_models import set_dynamics_model
 from LNN_behavioural_cloning_quadrotor.utils.quadrotor_sim import (
     build_input_vector,
@@ -39,11 +38,11 @@ BEBOP2_DATASET = PROJECT / "datasets" / "hover_dataset_test_bebop2_corrected.npz
 
 BEBOP1_MODEL = "new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.ckpt"
 BEBOP1_CONFIG = PROJECT / "configs" / "new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.yaml"
-BEBOP1_NORM = "LNN_behavioural_cloning_quadrotor.utils.normalization_limits"
+BEBOP1_NORM = "bebop1"
 
 BEBOP2_MODEL = "NOVA_VERSAOZE_BEBP2_conv_cfc_default_n64_bebop2_epoch=19_val_loss=0.000098.ckpt"
 BEBOP2_CONFIG = PROJECT / "configs" / "NOVA_VERSAOZE_BEBP2_conv_cfc_default_n64_bebop2_epoch=19_val_loss=0.000098.yaml"
-BEBOP2_NORM = "LNN_behavioural_cloning_quadrotor.utils.normalization_limits_bebop2_new"
+BEBOP2_NORM = "bebop2_tau_0_06"
 
 
 def _load_raw_trajectory(dataset_path: Path, index: int, input_labels: list[str]) -> tuple[np.ndarray, np.ndarray, float, list[str]]:
@@ -72,18 +71,9 @@ def _load_raw_trajectory(dataset_path: Path, index: int, input_labels: list[str]
     return np.stack(columns, axis=1), actions, dt, expanded
 
 
-def _norm_vectors(labels: list[str], module_name: str) -> tuple[np.ndarray, np.ndarray]:
-    module = importlib.import_module(module_name)
-    mins: list[float] = []
-    maxs: list[float] = []
-    for label in labels:
-        if label.startswith("omega"):
-            mins.append(float(module.GLOBAL_MIN["omega_min"]))
-            maxs.append(float(module.GLOBAL_MAX["omega_max"]))
-        else:
-            mins.append(float(module.GLOBAL_MIN[label]))
-            maxs.append(float(module.GLOBAL_MAX[label]))
-    return np.asarray(mins, dtype=np.float32), np.asarray(maxs, dtype=np.float32)
+def _norm_vectors(labels: list[str], profile: str) -> tuple[np.ndarray, np.ndarray]:
+    mins, maxs = get_norm_vectors(labels, profile)
+    return mins.reshape(-1).astype(np.float32), maxs.reshape(-1).astype(np.float32)
 
 
 def _rpm(actions: np.ndarray) -> np.ndarray:

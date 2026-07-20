@@ -53,8 +53,27 @@ def resolve_scale_factor(config: dict) -> float:
     return WIDTH_VARIANTS.get(variant_name, 1.0)
 
 
+def resolve_model_cfg(config: dict) -> dict:
+    """Return model settings, accepting legacy `model_variant.family` configs."""
+    model_cfg = dict(config.get("model", {}))
+    model_variant = config.get("model_variant", {})
+
+    if "type" not in model_cfg and "family" in model_variant:
+        model_cfg["type"] = model_variant["family"]
+
+    if str(model_cfg.get("type", "")).lower() == "cfc":
+        if "backbone_units" not in model_cfg and "base_backbone_units" in model_variant:
+            model_cfg["backbone_units"] = model_variant["base_backbone_units"]
+        if "activation" not in model_cfg and config.get("conv_block", {}).get("value", False):
+            model_cfg["activation"] = "relu"
+        model_cfg.setdefault("cfc_mode", "default")
+        model_cfg.setdefault("mixed_memory", False)
+
+    return model_cfg
+
+
 def supports_recurrent_state(config: dict) -> bool:
-    return str(config.get("model", {}).get("type", "ltc")).lower() not in {"mlp", "ff_mlp", "nn"}
+    return str(resolve_model_cfg(config).get("type", "ltc")).lower() not in {"mlp", "ff_mlp", "nn"}
 
 
 def build_ncp_wiring(model_cfg: dict, output_size: int, scale_factor: float = 1.0):
@@ -174,7 +193,7 @@ def build_controller_network(config: dict, input_dim: int, output_dim: int) -> t
     scale_factor = resolve_scale_factor(config)
     mlp_cfg = config.get("mlp_block", {})
     conv_cfg = config.get("conv_block", {})
-    model_cfg = config.get("model", {})
+    model_cfg = resolve_model_cfg(config)
     model_type = str(model_cfg.get("type", "ltc")).lower()
 
     if model_type in {"mlp", "ff_mlp", "nn"} and (mlp_cfg.get("value") or conv_cfg.get("value")):

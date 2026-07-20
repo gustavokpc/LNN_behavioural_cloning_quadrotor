@@ -54,6 +54,8 @@ class Bebop2Figure8GatesEnv(VecEnv):
         gates_pos: np.ndarray | Sequence[Sequence[float]] = DEFAULT_FIGURE8_GATE_POS,
         gate_yaw: np.ndarray | Sequence[float] = DEFAULT_FIGURE8_GATE_YAW,
         start_pos: np.ndarray | Sequence[float] = DEFAULT_FIGURE8_START_POS,
+        start_pos_jitter: float = 0.5,
+        start_gate: int = 0,
         gates_ahead: int = 1,
         gate_size: float = 1.5,
         motor_limit: float = 1.0,
@@ -81,7 +83,13 @@ class Bebop2Figure8GatesEnv(VecEnv):
         self.gate_pos = np.asarray(gates_pos, dtype=np.float32)
         self.gate_yaw = np.asarray(gate_yaw, dtype=np.float32)
         self.start_pos = np.asarray(start_pos, dtype=np.float32)
+        self.start_pos_jitter = float(start_pos_jitter)
+        if self.start_pos_jitter < 0.0:
+            raise ValueError("start_pos_jitter must be non-negative.")
         self.num_gates = int(self.gate_pos.shape[0])
+        self.start_gate = int(start_gate)
+        if not 0 <= self.start_gate < self.num_gates:
+            raise ValueError(f"start_gate must be between 0 and {self.num_gates - 1}.")
         self.gates_ahead = int(gates_ahead)
         self.gate_size = float(gate_size)
         self.motor_limit = float(motor_limit)
@@ -346,10 +354,11 @@ class Bebop2Figure8GatesEnv(VecEnv):
                     closest_gate[env_idx] = int(behind_indices[np.argmin(dist_to_gate[env_idx][behind_indices])])
             self.target_gates[dones] = closest_gate
         else:
-            self.target_gates[dones] = 0
-            x0 = np.random.uniform(-0.5, 0.5, size=num_reset) + self.start_pos[0]
-            y0 = np.random.uniform(-0.5, 0.5, size=num_reset) + self.start_pos[1]
-            z0 = np.random.uniform(-0.5, 0.5, size=num_reset) + self.start_pos[2]
+            self.target_gates[dones] = self.start_gate
+            jitter = self.start_pos_jitter
+            x0 = np.random.uniform(-jitter, jitter, size=num_reset) + self.start_pos[0]
+            y0 = np.random.uniform(-jitter, jitter, size=num_reset) + self.start_pos[1]
+            z0 = np.random.uniform(-jitter, jitter, size=num_reset) + self.start_pos[2]
 
         velocity = np.stack(
             [

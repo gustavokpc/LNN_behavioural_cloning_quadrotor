@@ -6,10 +6,12 @@ training:  # Lightning training hyperparameters
   wandb_project: Autonomous-Quadrotor-Training
 
 dataset:  # Dataset labels and preprocessing flags
-  input_labels: [dx, dy, dz, vx, vy, vz, phi, theta, psi, p, q, r, Mx_ext, My_ext, Mz_ext, omega]
+  input_labels: [dx, dy, dz, vx, vy, vz, phi, theta, psi, p, q, r, Mx_ext, My_ext, Mz_ext, omega, dt]
   output_labels: [u]
-  train_path: datasets/hover_dataset_train.npz
-  val_path: datasets/hover_dataset_val.npz
+  train_path: datasets/hover_dataset_train_bebop2.npz
+  val_path: datasets/hover_dataset_val_bebop2.npz
+  # Options: bebop1, bebop2_tau_0_06, bebop2_tau_0_03
+  normalization_limits: bebop2_tau_0_06
   normalized: true
   with_noise: false
   with_bias: false
@@ -26,7 +28,7 @@ mlp_block:  # Optional feature MLP before the recurrent controller
   no_layers: [64, 128, 128, 256]
 
 conv_block:  # Optional convolutional feature extractor
-  value: false
+  value: true
   output_dim: 256
 
 sequencing:  # Sliding-window extraction for history-based models
@@ -40,7 +42,7 @@ dataloader:  # Shared loader settings for train/validation
   drop_last: true
 
 model:  # Core controller definition
-  type: mlp          # cfc | ltc | ncp | ctrnn | simplernn | gru | lstm | mlp
+  type: ltc          # cfc | ltc | ncp | ctrnn | simplernn | gru | lstm | mlp
   no_neurons_layer: 64
   ode_unfolds: 6
   cfc_mode: default  # default | pure | no_gate
@@ -54,7 +56,7 @@ model:  # Core controller definition
   backbone_units: 128
   backbone_layers: 1
   backbone_dropout: 0.0
-  activation: relu
+  activation: lecun_tanh
   mixed_memory: false
   scale_factor: 1.0
   hidden_layers: [120, 120, 120]  # Used only when model.type == mlp

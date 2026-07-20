@@ -55,6 +55,9 @@ def resolve_checkpoint(model_name: str, project_root: Path) -> Path:
         direct = checkpoint_dir / variant.name
         if direct.is_file():
             return direct
+        matches = sorted(checkpoint_dir.glob(f"*/{variant.name}"))
+        if matches:
+            return matches[0]
 
     raise FileNotFoundError(f"Unable to locate checkpoint '{model_name}'.")
 
@@ -73,6 +76,9 @@ def resolve_saved_config(model_name: str, config_dir: Path) -> Path:
         direct = config_dir / variant.name
         if direct.is_file():
             return direct
+        matches = sorted(config_dir.glob(f"*/{variant.name}"))
+        if matches:
+            return matches[0]
 
     raise FileNotFoundError(f"Unable to locate saved config for '{model_name}'.")
 
