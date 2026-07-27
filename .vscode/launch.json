@@ -17,7 +17,10 @@
         "--clip-param=0.1",
         "--entropy-coeff=0.02",
         "--n-epochs=6",
-        "--max-steps=600"
+        "--max-steps=600",
+        "--policy-type=recurrent_ppo",
+        "--track=figure8_gates",
+        "--figure8-action-range=0_1"
       ],
       "console": "integratedTerminal",
       "justMyCode": false,

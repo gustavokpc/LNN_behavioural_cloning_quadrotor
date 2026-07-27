@@ -208,6 +208,7 @@ def make_env(
             gates_ahead=args.gates_ahead,
             gate_size=args.gate_size,
             dt=args.dt,
+            tau=args.tau,
             max_steps=args.max_steps,
             integration_method=args.integration_method,
             implicit_iters=args.implicit_iters,
@@ -260,6 +261,7 @@ def make_env(
 def train(args: argparse.Namespace) -> None:
     algo_cls, policy_class, policy_kwargs = resolve_bebop2_algorithm(args)
     algo_tag = args.policy_type
+    output_tag = args.output_tag if hasattr(args, "output_tag") and args.output_tag else "ckpt"
     track_artifact = _track_artifact_name(args.track)
     ckpt_dir = RL_ROOT / "checkpoints" / track_artifact / algo_tag
     ckpt_dir.mkdir(parents=True, exist_ok=True)
@@ -296,7 +298,7 @@ def train(args: argparse.Namespace) -> None:
     checkpoint_cb = CheckpointCallback(
         save_freq=args.checkpoint_freq,
         save_path=str(ckpt_dir),
-        name_prefix=f"{algo_tag}_{track_artifact}",
+        name_prefix=f"{algo_tag}_{track_artifact}_{output_tag}",
     )
     attach_gradient_logger(model.policy)
     grad_cb = GradientEpisodePrintCallback()
@@ -307,7 +309,7 @@ def train(args: argparse.Namespace) -> None:
         callback=[checkpoint_cb, grad_cb],
         progress_bar=True,
     )
-    model.save(ckpt_dir / f"{algo_tag}_{track_artifact}")
+    model.save(ckpt_dir / f"{algo_tag}_{track_artifact}_{output_tag}")
     env.close()
     elapsed = (time.time() - start) / 3600
     print(f"Finished training {args.total_timesteps:,} steps in {elapsed:0.2f}h. Latest checkpoint saved to {ckpt_dir}.")
@@ -516,7 +518,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-envs", type=int, default=64)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--cell-size", type=int, default=64)
-    parser.add_argument("--learning-rate", type=float, default=3e-4)
+    parser.add_argument("--learning-rate", type=float, default=1e-4)
     parser.add_argument("--max-log-std", type=float, default=-1.5)
     parser.add_argument("--rollout-fragment-length", type=int, default=512)
     parser.add_argument("--batch-size", type=int, default=4096)
@@ -551,7 +553,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--residual-scale", type=float, default=0.05)
     parser.add_argument("--cont", type=str, default="")
     parser.add_argument("--dt", type=float, default=0.01)
-    parser.add_argument("--max-steps", type=int, default=6000)
+    parser.add_argument("--tau", type=float, default=0.06)
+    parser.add_argument("--max-steps", type=int, default=3000)
     parser.add_argument("--track", choices=("square_waypoints", "figure8_gates"), default="square_waypoints")
     parser.add_argument(
         "--figure8-action-range",
@@ -617,6 +620,7 @@ def parse_args() -> argparse.Namespace:
         help="Optional PNG path for --plot-signals. Defaults to rl/runs/signal_plots/<track>/<policy>/<checkpoint>.png.",
     )
     parser.add_argument("--log-std-init", type=float, default=-3.0)
+    parser.add_argument("--output-tag", type=str, default="")
     args = parser.parse_args()
     track_artifact = _track_artifact_name(args.track)
     if not args.tensorboard_log:

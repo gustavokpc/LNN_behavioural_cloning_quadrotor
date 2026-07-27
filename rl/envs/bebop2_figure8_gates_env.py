@@ -75,10 +75,13 @@ class Bebop2Figure8GatesEnv(VecEnv):
         implicit_iters: int = 1,
         randomize_external_moments: bool = False,
         action_range: str = "0_1",
+        tau: float = 0.06,
         seed: int | None = None,
     ):
         self.seed(seed)
         set_dynamics_model("quadrotor_sim_matlab")
+
+        quadrotor_sim_matlab.TAU = tau
 
         self.gate_pos = np.asarray(gates_pos, dtype=np.float32)
         self.gate_yaw = np.asarray(gate_yaw, dtype=np.float32)
@@ -284,8 +287,12 @@ class Bebop2Figure8GatesEnv(VecEnv):
             source_idx = (hist_idx + 1) * self.history_step_size - 1
             new_states[:, start:start + 4] = self.action_hist[:, source_idx]
 
-        if self.param_input:
-            new_states[:, action_offset + 4 * self.num_action_history:] = self.param_encoding
+        # if self.param_input:
+        #     new_states[:, action_offset + 4 * self.num_action_history:] = self.param_encoding
+
+        if self.param_input_noise > 0.0:
+            new_states[:, 9:12] += np.random.normal(loc=0.0, scale=self.param_input_noise,
+                size=(self.num_envs, 3)).astype(np.float32)
 
         self.state_hist = np.roll(self.state_hist, 1, axis=1)
         self.state_hist[:, 0] = new_states
