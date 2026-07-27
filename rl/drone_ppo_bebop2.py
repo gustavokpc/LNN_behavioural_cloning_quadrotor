@@ -81,6 +81,39 @@ def _commands01_to_rpm(actions01: np.ndarray) -> np.ndarray:
     return info.omega_min + np.clip(actions01, 0.0, 1.0) * (info.omega_max - info.omega_min)
 
 
+def _synchronize_recurrent_timespan(model, args: argparse.Namespace) -> None:
+    """Use the environment dt as the sole time source for loaded CfC/LTC policies."""
+    if args.policy_type not in {"recurrent_ppo", "recurrent_ppo_ltc"}:
+        return
+
+    timespan = float(args.dt)
+    if timespan <= 0.0:
+        raise ValueError("--dt must be positive.")
+
+    policy = model.policy
+    updated_modules: list[str] = []
+    for module_name in ("lstm_actor", "lstm_critic"):
+        recurrent_module = getattr(policy, module_name, None)
+        if recurrent_module is None:
+            continue
+        recurrent_module.cfc_timespan = timespan
+        updated_modules.append(module_name)
+
+    if not updated_modules:
+        raise RuntimeError(
+            f"Policy type {args.policy_type!r} has no recurrent CfC/LTC module to update."
+        )
+
+    # Keep both the live policy and future checkpoints consistent with --dt.
+    policy._cfc_timespan = timespan
+    if isinstance(getattr(model, "policy_kwargs", None), dict):
+        model.policy_kwargs["cfc_timespan"] = timespan
+    print(
+        f"Unified recurrent timestep: dt=timespan={timespan:.9g}s "
+        f"({1.0 / timespan:.3f} Hz) | modules={','.join(updated_modules)}"
+    )
+
+
 def _print_action_stats(label: str, actions01: np.ndarray, rpm: np.ndarray) -> None:
     if len(actions01) < 2:
         print(f"{label}: not enough action samples for delta stats.")
@@ -219,6 +252,9 @@ def make_env(
             history_step_size=args.history_step_size,
             param_input=args.param_input,
             param_input_noise=args.param_input_noise,
+            motor_tau=args.motor_tau,
+            obs_rate_noise_std=args.obs_rate_noise_std,
+            invert_yaw_observation=args.invert_yaw_observation,
             low_obs=args.low_obs,
             no_vel=args.no_vel,
             no_ang_vel=args.no_ang_vel,
@@ -294,6 +330,8 @@ def train(args: argparse.Namespace) -> None:
             policy_kwargs=policy_kwargs,
             **algo_kwargs,
         )
+
+    _synchronize_recurrent_timespan(model, args)
 
     checkpoint_cb = CheckpointCallback(
         save_freq=args.checkpoint_freq,
@@ -373,6 +411,7 @@ def render(args: argparse.Namespace) -> None:
             device=args.device,
             custom_objects={"policy_class": policy_class},
         )
+        _synchronize_recurrent_timespan(model, args)
         obs = env.reset()
         state = None
         episode_start = np.ones((env.num_envs,), dtype=bool)
@@ -444,6 +483,7 @@ def render(args: argparse.Namespace) -> None:
         device=args.device,
         custom_objects={"policy_class": policy_class},
     )
+    _synchronize_recurrent_timespan(model, args)
     load_env.close()
 
     rollouts = []
@@ -533,6 +573,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--n-epochs", type=int, default=5)
     parser.add_argument("--cfc-timespan", type=float, default=0.01)
+    parser.add_argument("--n-epochs", type=int, default=3)
     parser.add_argument("--use-flatten-features", type=bool, default=True)
     parser.add_argument(
         "--policy-type",
@@ -555,6 +596,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dt", type=float, default=0.01)
     parser.add_argument("--tau", type=float, default=0.06)
     parser.add_argument("--max-steps", type=int, default=3000)
+    parser.add_argument("--max-steps", type=int, default=6000)
     parser.add_argument("--track", choices=("square_waypoints", "figure8_gates"), default="square_waypoints")
     parser.add_argument(
         "--figure8-action-range",
@@ -597,6 +639,26 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-ang-vel", action="store_true")
     parser.add_argument("--param-input", action="store_true")
     parser.add_argument("--param-input-noise", type=float, default=0.0)
+    parser.add_argument(
+        "--motor-tau",
+        type=float,
+        default=0.06,
+        help="Motor-response time constant in seconds for the Python Bebop2 dynamics.",
+    )
+    parser.add_argument(
+        "--obs-rate-noise-std",
+        type=float,
+        nargs=3,
+        metavar=("P_STD", "Q_STD", "R_STD"),
+        default=(0.0, 0.0, 0.0),
+        help="Gaussian standard deviations added to the p/q/r policy observations.",
+    )
+    parser.add_argument(
+        "--invert-yaw-observation",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Invert the target-relative yaw supplied to the policy.",
+    )
     parser.add_argument("--normalize-observations", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--randomize-external-moments", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--render", action="store_true")
@@ -649,8 +711,13 @@ def resolve_bebop2_algorithm(args):
     if args.policy_type == "residual_ppo":
         ppo_args = argparse.Namespace(**vars(args))
         ppo_args.policy_type = "ppo"
+        ppo_args.cfc_timespan = ppo_args.dt
         return resolve_algorithm(ppo_args)
-    return resolve_algorithm(args)
+    ppo_args = argparse.Namespace(**vars(args))
+    # The underlying legacy policy still names this constructor argument
+    # cfc_timespan, but the public Bebop2 CLI has one time source: --dt.
+    ppo_args.cfc_timespan = ppo_args.dt
+    return resolve_algorithm(ppo_args)
 
 
 if __name__ == "__main__":

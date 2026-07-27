@@ -66,6 +66,9 @@ class Bebop2Figure8GatesEnv(VecEnv):
         history_step_size: int = 1,
         param_input: bool = False,
         param_input_noise: float = 0.0,
+        motor_tau: float = quadrotor_sim_matlab.DEFAULT_TAU,
+        obs_rate_noise_std: np.ndarray | Sequence[float] | None = None,
+        invert_yaw_observation: bool = False,
         low_obs: bool = False,
         no_vel: bool = False,
         no_ang_vel: bool = False,
@@ -103,6 +106,16 @@ class Bebop2Figure8GatesEnv(VecEnv):
         self.history_step_size = int(history_step_size)
         self.param_input = bool(param_input)
         self.param_input_noise = float(param_input_noise)
+        self.motor_tau = float(motor_tau)
+        quadrotor_sim_matlab.set_motor_tau(self.motor_tau)
+        if obs_rate_noise_std is None:
+            obs_rate_noise_std = (0.0, 0.0, 0.0)
+        self.obs_rate_noise_std = np.asarray(obs_rate_noise_std, dtype=np.float32)
+        if self.obs_rate_noise_std.shape != (3,):
+            raise ValueError("obs_rate_noise_std must contain exactly three values for p, q, and r.")
+        if np.any(self.obs_rate_noise_std < 0.0):
+            raise ValueError("obs_rate_noise_std values must be non-negative.")
+        self.invert_yaw_observation = bool(invert_yaw_observation)
         self.low_obs = bool(low_obs)
         self.no_vel = bool(no_vel)
         self.no_ang_vel = bool(no_ang_vel)
@@ -270,8 +283,16 @@ class Bebop2Figure8GatesEnv(VecEnv):
         yaw %= 2.0 * np.pi
         yaw[yaw > np.pi] -= 2.0 * np.pi
         yaw[yaw < -np.pi] += 2.0 * np.pi
+        if self.invert_yaw_observation:
+            yaw = -yaw
         new_states[:, 8] = yaw
         new_states[:, 9:16] = self.world_states[:, 9:16]
+        if np.any(self.obs_rate_noise_std):
+            new_states[:, 9:12] += np.random.normal(
+                loc=0.0,
+                scale=self.obs_rate_noise_std,
+                size=(self.num_envs, 3),
+            ).astype(np.float32)
 
         for ahead_idx in range(self.gates_ahead):
             indices = (self.target_gates + ahead_idx + 1) % self.num_gates
