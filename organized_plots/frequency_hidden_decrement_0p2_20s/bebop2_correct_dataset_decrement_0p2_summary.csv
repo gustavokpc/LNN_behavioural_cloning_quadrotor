@@ -1,0 +1,4 @@
+model,mode,hidden_decrement,frequency_hz,dt_s,requested_time_s,completed_time_s,completed_steps,gates_passed,finite,tau_s,dist_error_m,noise,dynamics_model,normalization_limits,rpm_min,rpm_max
+conv_cfc_default_n64_bebop2_baseline_correct_dataset,hidden_decrement_0.2,0.2,50,0.02,20.0,20.0,1000,0,True,0.06,0.001,off,quadrotor_sim_matlab,bebop2_tau_0_06,5000.0,10000.0
+conv_cfc_default_n64_bebop2_baseline_correct_dataset,hidden_decrement_0.2,0.2,100,0.01,20.0,20.0,2000,0,True,0.06,0.001,off,quadrotor_sim_matlab,bebop2_tau_0_06,5000.0,10000.0
+conv_cfc_default_n64_bebop2_baseline_correct_dataset,hidden_decrement_0.2,0.2,200,0.005,20.0,20.0,4000,0,True,0.06,0.001,off,quadrotor_sim_matlab,bebop2_tau_0_06,5071.4545045048,10000.0

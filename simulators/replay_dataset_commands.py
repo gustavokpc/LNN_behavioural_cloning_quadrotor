@@ -311,7 +311,7 @@ def replay_collocation_then_hold(
     display_action_indices = np.minimum(np.arange(states_array.shape[0], dtype=int), dataset_actions.shape[0] - 1)
     display_actions = np.clip(dataset_actions[display_action_indices], 0.0, 1.0)
     if states_array.shape[0] > dataset_actions.shape[0]:
-        display_actions[dataset_actions.shape[0] :] = last_action
+        display_actions[dataset_actions.shape[0] :] = last_action   
         display_action_indices[dataset_actions.shape[0] :] = dataset_actions.shape[0] - 1
 
     return {

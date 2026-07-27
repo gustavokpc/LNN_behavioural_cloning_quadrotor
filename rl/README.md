@@ -280,14 +280,13 @@ Render a trained figure-8 checkpoint with the legacy gate viewer:
 | `--tensorboard-log` | `rl/runs/bebop2_waypoints` | TensorBoard log directory. |
 | `--device` | `auto` | SB3/PyTorch device: `auto`, `cpu`, or CUDA device string. |
 | `--n-epochs` | `10` | PPO optimization epochs per rollout. |
-| `--cfc-timespan` | `0.01` | Timespan used by the legacy recurrent CfC policy. |
 | `--use-flatten-features` | `True` | Feature extractor choice for `recurrent_ppo`. |
 | `--bc-config` | `configs/new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.yaml` | YAML used to rebuild the supervised CfC for `bc_ppo`. |
 | `--bc-checkpoint` | `new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.ckpt` | Supervised CfC checkpoint used to initialize `bc_ppo`. |
 | `--bc-value-hidden-dim` | `64` | Critic hidden size used by `bc_ppo`. |
 | `--residual-scale` | `0.05` | Residual correction magnitude for `residual_ppo`; the final action is `clip(CfC + residual_scale * PPO, 0, 1)`. |
 | `--cont` | empty | Continue from an existing SB3 `.zip` checkpoint. |
-| `--dt` | `0.01` | Environment timestep. |
+| `--dt` | `0.01` | Unified environment timestep, controller period, and CfC/LTC timespan. Loaded recurrent checkpoints are explicitly overridden to use this value. |
 | `--max-steps` | `6000` | Maximum steps per episode. |
 | `--track` | `square_waypoints` | `square_waypoints` keeps the current Bebop2 waypoint trainer; `figure8_gates` uses legacy-style figure-8 gates with Bebop2 dynamics. |
 | `--figure8-action-range` | `0_1` | Policy action range for `figure8_gates`; use `neg1_1` only for old checkpoints trained before the `[0, 1]` figure-8 change. |

@@ -1,0 +1,116 @@
+<!DOCTYPE module SYSTEM "module.dtd">
+<module name="rl_cfc_control" dir="rl_cfc_control" task="control">
+  <doc>
+    <description>
+      Recurrent PPO CfC controller wrapper for the TU Delft Cyberzoo figure-eight gate test.
+      The RL network receives the observation order defined by rl_cfc_parameters.h and returns
+      normalized motor actions in [0,1]. The wrapper maps those actions directly to Bebop RPM commands, matching
+      the direct motor set path used by nn_cfc_control.
+    </description>
+  </doc>
+
+  <settings>
+    <dl_settings>
+      <dl_settings name="RL CFC">
+        <dl_setting var="rl_cfc_control_enabled" min="0" step="1" max="1" shortname="enabled" values="FALSE|TRUE" type="bool" module="modules/rl_cfc_control/rl_cfc_control"/>
+        <dl_setting var="rl_cfc_control_periodic_count" min="0" step="1" max="1000000" shortname="periodic" type="uint32"/>
+        <dl_setting var="rl_cfc_control_periodic_dt_us" min="0" step="1" max="1000000" shortname="dt_us" type="uint32"/>
+        <dl_setting var="rl_cfc_control_sensor_read_time_us" min="0" step="1" max="1000000" shortname="sense_us" type="uint32"/>
+        <dl_setting var="rl_cfc_control_inference_time_us" min="0" step="1" max="1000000" shortname="infer_us" type="uint32"/>
+        <dl_setting var="rl_cfc_control_total_time_us" min="0" step="1" max="1000000" shortname="total_us" type="uint32"/>
+        <dl_setting var="rl_cfc_control_waypoint_index" min="0" step="1" max="7" shortname="wp_idx" type="uint32"/>
+        <dl_setting var="rl_cfc_control_z_sign" min="-1" step="2" max="1" shortname="z_s" type="float"/>
+        <dl_setting var="rl_cfc_control_vz_sign" min="-1" step="2" max="1" shortname="vz_s" type="float"/>
+        <dl_setting var="rl_cfc_control_mean_policy_rpm" min="0" step="1" max="12000" shortname="mean_rpm" type="float"/>
+        <dl_setting var="rl_cfc_control_dist_to_target" min="0" step="0.01" max="50" shortname="dist" type="float"/>
+        <dl_setting var="rl_cfc_control_target[0]" min="-20" step="0.01" max="20" shortname="target_x" type="float"/>
+        <dl_setting var="rl_cfc_control_target[1]" min="-20" step="0.01" max="20" shortname="target_y" type="float"/>
+        <dl_setting var="rl_cfc_control_target[2]" min="-5" step="0.01" max="10" shortname="target_z" type="float"/>
+        <dl_setting var="rl_cfc_control_error[0]" min="-20" step="0.01" max="20" shortname="err_x" type="float"/>
+        <dl_setting var="rl_cfc_control_error[1]" min="-20" step="0.01" max="20" shortname="err_y" type="float"/>
+        <dl_setting var="rl_cfc_control_error[2]" min="-10" step="0.01" max="10" shortname="err_z" type="float"/>
+        <dl_setting var="rl_cfc_control_input_error[0]" min="-20" step="0.01" max="20" shortname="in_dx" type="float"/>
+        <dl_setting var="rl_cfc_control_input_error[1]" min="-20" step="0.01" max="20" shortname="in_dy" type="float"/>
+        <dl_setting var="rl_cfc_control_input_error[2]" min="-10" step="0.01" max="10" shortname="in_dz" type="float"/>
+        <dl_setting var="rl_cfc_control_input_velocity[0]" min="-10" step="0.01" max="10" shortname="in_vx" type="float"/>
+        <dl_setting var="rl_cfc_control_input_velocity[1]" min="-10" step="0.01" max="10" shortname="in_vy" type="float"/>
+        <dl_setting var="rl_cfc_control_input_velocity[2]" min="-10" step="0.01" max="10" shortname="in_vz" type="float"/>
+        <dl_setting var="rl_cfc_control_next_gate[0]" min="-20" step="0.01" max="20" shortname="next_x" type="float"/>
+        <dl_setting var="rl_cfc_control_next_gate[1]" min="-20" step="0.01" max="20" shortname="next_y" type="float"/>
+        <dl_setting var="rl_cfc_control_next_gate[2]" min="-10" step="0.01" max="10" shortname="next_z" type="float"/>
+        <dl_setting var="rl_cfc_control_next_gate[3]" min="-3.15" step="0.01" max="3.15" shortname="next_yaw" type="float"/>
+        <dl_setting var="rl_cfc_control_motor_state[0]" min="-1" step="0.001" max="1.5" shortname="ms0" type="float"/>
+        <dl_setting var="rl_cfc_control_motor_state[1]" min="-1" step="0.001" max="1.5" shortname="ms1" type="float"/>
+        <dl_setting var="rl_cfc_control_motor_state[2]" min="-1" step="0.001" max="1.5" shortname="ms2" type="float"/>
+        <dl_setting var="rl_cfc_control_motor_state[3]" min="-1" step="0.001" max="1.5" shortname="ms3" type="float"/>
+        <dl_setting var="rl_cfc_control_raw_action[0]" min="-100" step="0.001" max="100" shortname="raw0" type="float"/>
+        <dl_setting var="rl_cfc_control_raw_action[1]" min="-100" step="0.001" max="100" shortname="raw1" type="float"/>
+        <dl_setting var="rl_cfc_control_raw_action[2]" min="-100" step="0.001" max="100" shortname="raw2" type="float"/>
+        <dl_setting var="rl_cfc_control_raw_action[3]" min="-100" step="0.001" max="100" shortname="raw3" type="float"/>
+        <dl_setting var="rl_cfc_control_policy_raw_action[0]" min="0" step="0.001" max="1" shortname="pr0" type="float"/>
+        <dl_setting var="rl_cfc_control_policy_raw_action[1]" min="0" step="0.001" max="1" shortname="pr1" type="float"/>
+        <dl_setting var="rl_cfc_control_policy_raw_action[2]" min="0" step="0.001" max="1" shortname="pr2" type="float"/>
+        <dl_setting var="rl_cfc_control_policy_raw_action[3]" min="0" step="0.001" max="1" shortname="pr3" type="float"/>
+        <dl_setting var="rl_cfc_control_action[0]" min="0" step="0.001" max="1" shortname="a0" type="float"/>
+        <dl_setting var="rl_cfc_control_action[1]" min="0" step="0.001" max="1" shortname="a1" type="float"/>
+        <dl_setting var="rl_cfc_control_action[2]" min="0" step="0.001" max="1" shortname="a2" type="float"/>
+        <dl_setting var="rl_cfc_control_action[3]" min="0" step="0.001" max="1" shortname="a3" type="float"/>
+        <dl_setting var="rl_cfc_control_last_norm[0]" min="0" step="0.001" max="1" shortname="m0_norm" type="float"/>
+        <dl_setting var="rl_cfc_control_last_norm[1]" min="0" step="0.001" max="1" shortname="m1_norm" type="float"/>
+        <dl_setting var="rl_cfc_control_last_norm[2]" min="0" step="0.001" max="1" shortname="m2_norm" type="float"/>
+        <dl_setting var="rl_cfc_control_last_norm[3]" min="0" step="0.001" max="1" shortname="m3_norm" type="float"/>
+        <dl_setting var="rl_cfc_control_motor_rpm_cmd[0]" min="0" step="1" max="12000" shortname="m0_cmd" type="int32"/>
+        <dl_setting var="rl_cfc_control_motor_rpm_cmd[1]" min="0" step="1" max="12000" shortname="m1_cmd" type="int32"/>
+        <dl_setting var="rl_cfc_control_motor_rpm_cmd[2]" min="0" step="1" max="12000" shortname="m2_cmd" type="int32"/>
+        <dl_setting var="rl_cfc_control_motor_rpm_cmd[3]" min="0" step="1" max="12000" shortname="m3_cmd" type="int32"/>
+        <dl_setting var="rl_cfc_control_applied_rpm_cmd[0]" min="0" step="1" max="12000" shortname="ap0" type="int32"/>
+        <dl_setting var="rl_cfc_control_applied_rpm_cmd[1]" min="0" step="1" max="12000" shortname="ap1" type="int32"/>
+        <dl_setting var="rl_cfc_control_applied_rpm_cmd[2]" min="0" step="1" max="12000" shortname="ap2" type="int32"/>
+        <dl_setting var="rl_cfc_control_applied_rpm_cmd[3]" min="0" step="1" max="12000" shortname="ap3" type="int32"/>
+        <dl_setting var="rl_cfc_control_last_rpm[0]" min="0" step="1" max="12000" shortname="m0_rpm" type="float"/>
+        <dl_setting var="rl_cfc_control_last_rpm[1]" min="0" step="1" max="12000" shortname="m1_rpm" type="float"/>
+        <dl_setting var="rl_cfc_control_last_rpm[2]" min="0" step="1" max="12000" shortname="m2_rpm" type="float"/>
+        <dl_setting var="rl_cfc_control_last_rpm[3]" min="0" step="1" max="12000" shortname="m3_rpm" type="float"/>
+        <dl_setting var="rl_cfc_control_feedback_rpm[0]" min="0" step="1" max="12000" shortname="fb0_rpm" type="float"/>
+        <dl_setting var="rl_cfc_control_feedback_rpm[1]" min="0" step="1" max="12000" shortname="fb1_rpm" type="float"/>
+        <dl_setting var="rl_cfc_control_feedback_rpm[2]" min="0" step="1" max="12000" shortname="fb2_rpm" type="float"/>
+        <dl_setting var="rl_cfc_control_feedback_rpm[3]" min="0" step="1" max="12000" shortname="fb3_rpm" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[0]" min="-20" step="0.01" max="20" shortname="obs0" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[1]" min="-20" step="0.01" max="20" shortname="obs1" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[2]" min="-10" step="0.01" max="10" shortname="obs2" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[3]" min="-10" step="0.01" max="10" shortname="obs3" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[4]" min="-10" step="0.01" max="10" shortname="obs4" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[5]" min="-10" step="0.01" max="10" shortname="obs5" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[6]" min="-3.15" step="0.01" max="3.15" shortname="obs6" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[7]" min="-3.15" step="0.01" max="3.15" shortname="obs7" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[8]" min="-3.15" step="0.01" max="3.15" shortname="obs8" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[9]" min="-10" step="0.01" max="10" shortname="obs9" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[10]" min="-10" step="0.01" max="10" shortname="obs10" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[11]" min="-10" step="0.01" max="10" shortname="obs11" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[12]" min="-1" step="0.001" max="1.5" shortname="obs12" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[13]" min="-1" step="0.001" max="1.5" shortname="obs13" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[14]" min="-1" step="0.001" max="1.5" shortname="obs14" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[15]" min="-1" step="0.001" max="1.5" shortname="obs15" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[16]" min="-20" step="0.01" max="20" shortname="obs16" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[17]" min="-20" step="0.01" max="20" shortname="obs17" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[18]" min="-10" step="0.01" max="10" shortname="obs18" type="float"/>
+        <dl_setting var="rl_cfc_control_obs[19]" min="-3.15" step="0.01" max="3.15" shortname="obs19" type="float"/>
+      </dl_settings>
+    </dl_settings>
+  </settings>
+
+  <dep>
+    <depends>@state,@navigation,@mixing</depends>
+  </dep>
+  <header>
+    <file name="rl_cfc_control.h"/>
+  </header>
+  <init fun="rl_cfc_control_init()"/>
+  <periodic fun="rl_cfc_control_periodic()" freq="100." autorun="TRUE"/>
+
+  <makefile target="ap|nps">
+    <file name="rl_cfc_control.c"/>
+    <file name="rl_cfc_operations.c"/>
+    <file name="rl_cfc_parameters.c"/>
+  </makefile>
+</module>

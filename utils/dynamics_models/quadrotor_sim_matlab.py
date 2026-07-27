@@ -7,6 +7,8 @@ The rotor yaw sign is adapted to the controller-training convention.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 
 from . import DynamicsInfo
@@ -19,7 +21,8 @@ IYY = 0.001850 #paper values
 IZZ = 0.003340 #paper values
 OMEGA_MAX = 10000.0
 OMEGA_MIN = 5000.0
-TAU = 0.06
+DEFAULT_TAU = 0.06
+TAU = DEFAULT_TAU
 
 RHO = 1.225
 R = 0.075
@@ -138,6 +141,16 @@ INFO = DynamicsInfo(
 )
 
 
+def set_motor_tau(tau: float) -> None:
+    """Set the motor-response time constant used by subsequent integrations."""
+    global TAU, INFO
+    tau = float(tau)
+    if tau <= 0.0:
+        raise ValueError(f"Motor tau must be positive, got {tau}.")
+    TAU = tau
+    INFO = replace(INFO, tau=tau)
+
+
 def _safe_sign(value: float) -> float:
     return 0.0 if value == 0.0 else float(np.sign(value))
 
@@ -195,7 +208,7 @@ def forces_moments(
     vel: np.ndarray,
     rates: np.ndarray,
     omega_rpm: np.ndarray,
-    rotor_yaw_sign: float = -1.0,
+    rotor_yaw_sign: float = 1.0, #was -1.0 for bebop1
 ) -> tuple[np.ndarray, np.ndarray]:
     vel = np.asarray(vel, dtype=np.float64).reshape(3)
     rates = np.asarray(rates, dtype=np.float64).reshape(3)
