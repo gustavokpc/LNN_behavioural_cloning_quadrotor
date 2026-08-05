@@ -16,6 +16,7 @@ it through ``quadrotor_sim_matlab``.
 from __future__ import annotations
 
 import random
+from dataclasses import replace
 from typing import Sequence
 
 import numpy as np
@@ -23,8 +24,8 @@ import torch
 from gymnasium import spaces
 from stable_baselines3.common.vec_env import VecEnv
 
-from ...utils.dynamics_models import quadrotor_sim_matlab, set_dynamics_model
-from ...utils.quadrotor_sim import body_to_world_state, integrate_state, world_to_body_state
+from ...utils.dynamics_models import quadrotor_sim_matlab_randomized
+from ...utils.quadrotor_sim import body_to_world_state, world_to_body_state
 
 
 FIGURE8_RADIUS = 1.5
@@ -66,7 +67,7 @@ class Bebop2Figure8GatesEnv(VecEnv):
         history_step_size: int = 1,
         param_input: bool = False,
         param_input_noise: float = 0.0,
-        motor_tau: float = quadrotor_sim_matlab.DEFAULT_TAU,
+        motor_tau: float = quadrotor_sim_matlab_randomized.DEFAULT_TAU,
         obs_rate_noise_std: np.ndarray | Sequence[float] | None = None,
         invert_yaw_observation: bool = False,
         low_obs: bool = False,
@@ -79,12 +80,22 @@ class Bebop2Figure8GatesEnv(VecEnv):
         randomize_external_moments: bool = False,
         action_range: str = "0_1",
         tau: float = 0.06,
+        randomize_dynamics: bool = False,
+        randomization_factor: float = 0.30,
+        randomize_aerodynamic_coefficients: bool = True,
         seed: int | None = None,
     ):
         self.seed(seed)
-        set_dynamics_model("quadrotor_sim_matlab")
+        self._rng = np.random.default_rng(seed)
 
-        quadrotor_sim_matlab.TAU = tau
+        # ``tau`` is kept as a backwards-compatible alias for ``motor_tau``.
+        if tau is not None:
+            motor_tau = float(tau)
+        self.randomize_dynamics = bool(randomize_dynamics)
+        self.randomization_factor = float(randomization_factor)
+        if not 0.0 <= self.randomization_factor < 1.0:
+            raise ValueError("randomization_factor must be in [0, 1).")
+        self.randomize_aerodynamic_coefficients = bool(randomize_aerodynamic_coefficients)
 
         self.gate_pos = np.asarray(gates_pos, dtype=np.float32)
         self.gate_yaw = np.asarray(gate_yaw, dtype=np.float32)
@@ -107,7 +118,12 @@ class Bebop2Figure8GatesEnv(VecEnv):
         self.param_input = bool(param_input)
         self.param_input_noise = float(param_input_noise)
         self.motor_tau = float(motor_tau)
-        quadrotor_sim_matlab.set_motor_tau(self.motor_tau)
+        if self.motor_tau <= 0.0:
+            raise ValueError("motor_tau must be positive.")
+        self.base_dynamics_parameters = replace(
+            quadrotor_sim_matlab_randomized.DEFAULT_PARAMETERS,
+            tau=self.motor_tau,
+        )
         if obs_rate_noise_std is None:
             obs_rate_noise_std = (0.0, 0.0, 0.0)
         self.obs_rate_noise_std = np.asarray(obs_rate_noise_std, dtype=np.float32)
@@ -198,17 +214,125 @@ class Bebop2Figure8GatesEnv(VecEnv):
         self.episode_action_count = np.zeros(num_envs, dtype=np.int64)
         self.episode_action_rpm_diff_sum = np.zeros(num_envs, dtype=np.float64)
         self.episode_metric_steps = np.zeros(num_envs, dtype=np.int64)
-
+        
+        self.dynamics_parameters = [self.base_dynamics_parameters for _ in range(num_envs)]
         self.param_encoding = np.zeros((num_envs, 9), dtype=np.float32)
+
+        self.input_noise_frequency = 33.0  # Hz
+
+        # Replace these indices with the actual positions of p, q, and r
+        self.p_idx, self.q_idx, self.r_idx = 9, 10, 11
+
+        self.angular_rate_noise_std = np.array([0.21, 0.08, 0.08],dtype=np.float32)  # Amplitude for p, q, r noise
+
+        # One independent noise state per parallel environment
+        self.angular_rate_noise = np.zeros((self.num_envs, 3),dtype=np.float32)
+
+        self.angular_rate_noise_timer = np.zeros(self.num_envs, dtype=np.float32)
+
         self.reset()
 
-    def _omega_to_legacy_motor(self, omega: np.ndarray) -> np.ndarray:
-        info = quadrotor_sim_matlab.INFO
-        return 2.0 * (omega - info.omega_min) / (info.omega_max - info.omega_min) - 1.0
+    def _omega_to_legacy_motor(
+        self,
+        omega: np.ndarray,
+        parameters: quadrotor_sim_matlab_randomized.DynamicsParameters | None = None,
+    ) -> np.ndarray:
+        if parameters is None:
+            parameters = self.base_dynamics_parameters
+        return 2.0 * (omega - parameters.omega_min) / (parameters.omega_max - parameters.omega_min) - 1.0
 
-    def _legacy_motor_to_omega(self, motor_state: np.ndarray) -> np.ndarray:
-        info = quadrotor_sim_matlab.INFO
-        return info.omega_min + 0.5 * (motor_state + 1.0) * (info.omega_max - info.omega_min)
+    def _legacy_motor_to_omega(
+        self,
+        motor_state: np.ndarray,
+        parameters: quadrotor_sim_matlab_randomized.DynamicsParameters | None = None,
+    ) -> np.ndarray:
+        if parameters is None:
+            parameters = self.base_dynamics_parameters
+        return parameters.omega_min + 0.5 * (motor_state + 1.0) * (parameters.omega_max - parameters.omega_min)
+
+    def _sample_dynamics_parameters(self, num_samples: int):
+        """Return one fixed or randomized parameter set per reset environment.
+
+        Parameters are sampled only at reset and then kept constant for the whole
+        episode. When domain randomization is disabled, all environments use the
+        nominal model, including the configured ``motor_tau``.
+        """
+        if not self.randomize_dynamics or self.randomization_factor == 0.0:
+            return [self.base_dynamics_parameters for _ in range(num_samples)]
+
+        return [
+            quadrotor_sim_matlab_randomized.sample_randomized_parameters(
+                self.randomization_factor,
+                rng=self._rng,
+                base=self.base_dynamics_parameters,
+                randomize_aerodynamic_coefficients=self.randomize_aerodynamic_coefficients,
+            )
+            for _ in range(num_samples)
+        ]
+
+    def _encode_parameters(self, parameters) -> np.ndarray:
+        base = self.base_dynamics_parameters
+        values = np.asarray(
+            [
+                parameters.mass / base.mass,
+                parameters.ixx / base.ixx,
+                parameters.iyy / base.iyy,
+                parameters.izz / base.izz,
+                parameters.omega_min / base.omega_min,
+                parameters.omega_max / base.omega_max,
+                parameters.tau / base.tau,
+                parameters.rho / base.rho,
+                parameters.rotor_radius / base.rotor_radius,
+            ],
+            dtype=np.float64,
+        )
+        if not self.randomize_dynamics or self.randomization_factor == 0.0:
+            encoded = np.zeros(9, dtype=np.float64)
+        else:
+            encoded = (values - 1.0) / self.randomization_factor
+        # if self.param_input_noise > 0.0:
+        #     encoded *= self._rng.uniform(
+        #         1.0 - self.param_input_noise,
+        #         1.0 + self.param_input_noise,
+        #         size=encoded.shape,
+        #     )
+        return np.clip(encoded, -1.0, 1.0).astype(np.float32)
+
+    def _integrate_state_with_parameters(
+        self,
+        state: np.ndarray,
+        action: np.ndarray,
+        parameters: quadrotor_sim_matlab_randomized.DynamicsParameters,
+        prev_deriv: np.ndarray | None = None,
+    ) -> tuple[np.ndarray, np.ndarray | None]:
+        f = lambda x: quadrotor_sim_matlab_randomized.dynamics(x, action, parameters=parameters)
+        method = self.integration_method.lower()
+        dt = self.dt
+        k1 = f(state)
+
+        if method in {"euler", "explicit_euler"}:
+            return state + dt * k1, k1
+        if method in {"heun", "rk2"}:
+            k2 = f(state + dt * k1)
+            return state + 0.5 * dt * (k1 + k2), k1
+        if method in {"midpoint", "explicit_midpoint"}:
+            k2 = f(state + 0.5 * dt * k1)
+            return state + dt * k2, k1
+        if method in {"ab2", "adams_bashforth_2"}:
+            if prev_deriv is None:
+                return state + dt * k1, k1
+            return state + dt * (1.5 * k1 - 0.5 * prev_deriv), k1
+        if method in {"implicit_euler", "backward_euler"}:
+            next_state = state + dt * k1
+            for _ in range(max(1, self.implicit_iters)):
+                next_state = state + dt * f(next_state)
+            return next_state, k1
+        if method == "rk4":
+            k2 = f(state + 0.5 * dt * k1)
+            k3 = f(state + 0.5 * dt * k2)
+            k4 = f(state + dt * k3)
+            return state + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4), k1
+        raise ValueError(f"Unsupported integration_method: {self.integration_method!r}.")
 
     def action_to_bebop_command(self, actions: np.ndarray) -> np.ndarray:
         actions = np.asarray(actions)
@@ -240,7 +364,9 @@ class Bebop2Figure8GatesEnv(VecEnv):
         state_world[15:19] = self._legacy_motor_to_omega(motor_legacy)
         return world_to_body_state(state_world)
 
-    def _sim_to_world_state(self, sim_state: np.ndarray, target: np.ndarray) -> np.ndarray:
+    def _sim_to_world_state(self, sim_state: np.ndarray, target: np.ndarray, parameters: quadrotor_sim_matlab_randomized.DynamicsParameters | None = None) -> np.ndarray:
+        if parameters is None:
+            parameters = self.base_dynamics_parameters
         state_world_rel = body_to_world_state(sim_state)
         out = np.zeros(16, dtype=np.float64)
         out[0:3] = target + state_world_rel[0:3]
@@ -251,7 +377,12 @@ class Bebop2Figure8GatesEnv(VecEnv):
     def _refresh_world_states(self) -> None:
         targets = self.gate_pos[self.target_gates % self.num_gates].astype(np.float64)
         self.world_states = np.asarray(
-            [self._sim_to_world_state(state, target) for state, target in zip(self.sim_states, targets, strict=True)],
+            [
+                self._sim_to_world_state(state, target, parameters)
+                for state, target, parameters in zip(
+                    self.sim_states, targets, self.dynamics_parameters, strict=True
+                )
+            ],
             dtype=np.float32,
         )
 
@@ -312,8 +443,37 @@ class Bebop2Figure8GatesEnv(VecEnv):
         #     new_states[:, action_offset + 4 * self.num_action_history:] = self.param_encoding
 
         if self.param_input_noise > 0.0:
-            new_states[:, 9:12] += np.random.normal(loc=0.0, scale=self.param_input_noise,
-                size=(self.num_envs, 3)).astype(np.float32)
+            new_states[:, :] += np.random.normal(loc=0.0, scale=self.param_input_noise,
+                size=(self.num_envs, 20)).astype(np.float32)
+
+        # if self.param_input_noise > 0.0:
+        #     # Time elapsed since the previous noise sample
+        #     self.angular_rate_noise_timer += self.dt
+
+        #     noise_period = 1.0 / self.input_noise_frequency
+        #     update_mask = self.angular_rate_noise_timer >= noise_period
+
+        #     if np.any(update_mask):
+        #         num_updates = np.count_nonzero(update_mask)
+
+        #         sampled_noise = np.random.normal(
+        #             loc=0.0,
+        #             scale=self.angular_rate_noise_std,
+        #             size=(num_updates, 3),
+        #         ).astype(np.float32)
+
+        #         # param_input_noise acts as a global noise multiplier:
+        #         # 0.0 = disabled, 1.0 = measured flight-test noise
+        #         self.angular_rate_noise[update_mask] = (
+        #             self.param_input_noise * sampled_noise
+        #         )
+
+        #         # Preserve timing remainder to avoid frequency drift
+        #         self.angular_rate_noise_timer[update_mask] %= noise_period
+
+        #     new_states[:, self.p_idx] += self.angular_rate_noise[:, 0]
+        #     new_states[:, self.q_idx] += self.angular_rate_noise[:, 1]
+        #     new_states[:, self.r_idx] += self.angular_rate_noise[:, 2]
 
         self.state_hist = np.roll(self.state_hist, 1, axis=1)
         self.state_hist[:, 0] = new_states
@@ -345,8 +505,14 @@ class Bebop2Figure8GatesEnv(VecEnv):
         return np.arccos(np.clip(np.cos(phi) * np.cos(theta), -1.0, 1.0))
 
     def _action_to_commanded_speed_rpm(self, actions: np.ndarray) -> np.ndarray:
-        info = quadrotor_sim_matlab.INFO
-        return info.omega_min + self.action_to_bebop_command(actions) * (info.omega_max - info.omega_min)
+        commands = self.action_to_bebop_command(actions)
+        return np.asarray(
+            [
+                parameters.omega_min + command * (parameters.omega_max - parameters.omega_min)
+                for command, parameters in zip(commands, self.dynamics_parameters, strict=True)
+            ],
+            dtype=np.float64,
+        )
 
     def reset_(self, dones: np.ndarray) -> np.ndarray:
         num_reset = int(dones.sum())
@@ -424,6 +590,11 @@ class Bebop2Figure8GatesEnv(VecEnv):
         positions = np.stack([x0, y0, z0], axis=1)
         targets = self.gate_pos[self.target_gates[dones] % self.num_gates].astype(np.float64)
         external_moments = self._sample_external_moments(num_reset)
+        sampled_parameters = self._sample_dynamics_parameters(num_reset)
+        reset_indices = np.flatnonzero(dones)
+        for env_idx, parameters in zip(reset_indices, sampled_parameters, strict=True):
+            self.dynamics_parameters[env_idx] = parameters
+            self.param_encoding[env_idx] = self._encode_parameters(parameters)
         self.sim_states[dones] = np.asarray(
             [
                 self._make_sim_state(position, velocity_i, angles_i, rates_i, motors_i, target, moment)
@@ -444,6 +615,8 @@ class Bebop2Figure8GatesEnv(VecEnv):
         self.prev_derivs = [None if done else deriv for done, deriv in zip(dones, self.prev_derivs, strict=True)]
         self.state_hist[dones] = 0.0
         self.action_hist[dones] = 0.0
+        self.angular_rate_noise[dones] = 0.0
+        self.angular_rate_noise_timer[dones] = 0.0
         self._reset_episode_metrics(dones)
         self.update_states_gate()
         return self.states
@@ -471,13 +644,13 @@ class Bebop2Figure8GatesEnv(VecEnv):
         new_sim_states = np.zeros_like(old_sim_states)
         new_derivs: list[np.ndarray | None] = [None] * self.num_envs
         for idx in range(self.num_envs):
-            next_state, deriv = integrate_state(
-                self.integration_method,
-                old_sim_states[idx],
-                actions01[idx],
-                self.dt,
+            next_state, deriv = self._integrate_state_with_parameters(
+                state=old_sim_states[idx],
+                action=actions01[idx],
+                # dt=self.dt,
+                parameters=self.dynamics_parameters[idx],
                 prev_deriv=self.prev_derivs[idx],
-                implicit_iters=self.implicit_iters,
+                # implicit_iters=self.implicit_iters,
             )
             new_sim_states[idx] = next_state
             new_derivs[idx] = deriv
@@ -508,8 +681,9 @@ class Bebop2Figure8GatesEnv(VecEnv):
         yaw_gate = self.gate_yaw[self.target_gates % self.num_gates].astype(np.float64)
         d2g_old = np.linalg.norm(pos_old - pos_gate, axis=1)
         d2g_new = np.linalg.norm(pos_new - pos_gate, axis=1)
-        rate_penalty = 0.001 * np.linalg.norm(new_world_rel[:, 9:12], axis=1)
-        rewards = d2g_old - d2g_new - rate_penalty
+        rate_penalty = 0.001 * np.linalg.norm(new_sim_states[:, 9:12], axis=1)
+        yaw_penalty = 0.001 * np.abs(new_sim_states[:, 8])
+        rewards = d2g_old - d2g_new - rate_penalty - yaw_penalty
 
         normal = np.array([np.cos(yaw_gate), np.sin(yaw_gate)]).T
         pos_old_projected = (pos_old[:, 0] - pos_gate[:, 0]) * normal[:, 0] + (
@@ -525,7 +699,7 @@ class Bebop2Figure8GatesEnv(VecEnv):
         ground_collision = pos_new[:, 2] > 0.0
         out_of_bounds = np.any(np.abs(pos_new[:, 0:2]) > 5.0, axis=1)
         out_of_bounds |= pos_new[:, 2] < -7.0
-        out_of_bounds |= np.any(np.abs(new_world_rel[:, 9:12]) > 1000.0, axis=1)
+        out_of_bounds |= np.any(np.abs(new_sim_states[:, 9:12]) > 1000.0, axis=1)
         rewards[ground_collision] = -10.0
         rewards[out_of_bounds] = -10.0
         max_steps_reached = self.step_counts >= self.max_steps

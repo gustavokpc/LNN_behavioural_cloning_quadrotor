@@ -8,6 +8,7 @@ import gym as legacy_gym
 import numpy as np
 import torch as th
 from ncps.torch import CfC, LTC
+from ncps.wirings import NCP
 from sb3_contrib import RecurrentPPO
 from sb3_contrib.common.recurrent.policies import RecurrentActorCriticPolicy
 from sb3_contrib.common.recurrent.buffers import RecurrentRolloutBuffer
@@ -334,11 +335,13 @@ class RecurrentActorCriticCfCPolicy(LogStdClampMixin, RecurrentActorCriticPolicy
         *args,
         cfc_timespan: float | th.Tensor | None = None,
         cfc_kwargs: dict[str, Any] | None = None,
+        ncp_kwargs: dict[str, int] | None = None,
         max_log_std: float | None = 1.0,
         **kwargs,
     ):
         self._cfc_lr_schedule = lr_schedule
         self._cfc_kwargs = cfc_kwargs or {}
+        self._ncp_kwargs = ncp_kwargs
         self._cfc_timespan = cfc_timespan
         self.max_log_std = max_log_std
         super().__init__(
@@ -349,33 +352,26 @@ class RecurrentActorCriticCfCPolicy(LogStdClampMixin, RecurrentActorCriticPolicy
             **kwargs,
         )
         # CfC/LTC keeps a single hidden state (no cell), so we only track one layer.
-        self.lstm_hidden_state_shape = (1, 1, self.lstm_output_dim)
-        self.lstm_actor = self.recurrent_cell_cls(
+        self.lstm_actor = self._make_recurrent_cell(
             self.features_dim,
-            self.lstm_output_dim,
-            batch_first=True,
-            return_sequences=True,
-            **self._cfc_kwargs,
         )
+        recurrent_state_size = int(getattr(self.lstm_actor, "state_size", self.lstm_output_dim))
+        self.lstm_hidden_state_shape = (1, 1, recurrent_state_size)
         self.lstm_actor.cfc_timespan = self._cfc_timespan
         for name, param in self.lstm_actor.named_parameters():
             if "bias" in name:
                 th.nn.init.constant_(param, 0)
             elif "weight" in name:
                 th.nn.init.orthogonal_(param, 1.0)
-        self.lstm_actor.hidden_size = self.lstm_output_dim
+        self.lstm_actor.hidden_size = recurrent_state_size
         self.lstm_actor.num_layers = 1
 
         if self.enable_critic_lstm:
-            self.lstm_critic = self.recurrent_cell_cls(
+            self.lstm_critic = self._make_recurrent_cell(
                 self.features_dim,
-                self.lstm_output_dim,
-                batch_first=True,
-                return_sequences=True,
-                **self._cfc_kwargs,
             )
             self.lstm_critic.cfc_timespan = self._cfc_timespan
-            self.lstm_critic.hidden_size = self.lstm_output_dim
+            self.lstm_critic.hidden_size = int(getattr(self.lstm_critic, "state_size", self.lstm_output_dim))
             self.lstm_critic.num_layers = 1
         elif self.shared_lstm:
             self.lstm_critic = None
@@ -395,6 +391,14 @@ class RecurrentActorCriticCfCPolicy(LogStdClampMixin, RecurrentActorCriticPolicy
         self.optimizer = self.optimizer_class(self.parameters(), lr=self._cfc_lr_schedule(1), **self.optimizer_kwargs)
         self._clip_log_std_parameter_()
         self._wrap_optimizer_step_with_log_std_cap()
+
+    def _make_recurrent_cell(self, input_size: int):
+        units: int | NCP = self.lstm_output_dim
+        if self._ncp_kwargs is not None:
+            units = NCP(motor_neurons=self.lstm_output_dim, **self._ncp_kwargs)
+        return self.recurrent_cell_cls(
+            input_size, units, batch_first=True, return_sequences=True, **self._cfc_kwargs
+        )
 
     @staticmethod
     def _process_sequence(
@@ -425,6 +429,27 @@ class RecurrentActorCriticCfCPolicy(LogStdClampMixin, RecurrentActorCriticPolicy
                 hidden = (1.0 - step_start).unsqueeze(-1) * hidden
                 if cfc_timespan is None:
                     step_out, hidden = rnn_module(step_features.unsqueeze(1), hidden)
+                elif getattr(rnn_module, "state_size", None) != getattr(rnn_module, "output_size", None):
+                    # ncps' wired cell passes one elapsed-time value through
+                    # layers of different widths. Run each environment with a
+                    # scalar timespan to avoid broadcasting it as a state vector.
+                    sample_outputs = []
+                    sample_hidden = []
+                    for sample_features, sample_state in zip(step_features, hidden, strict=True):
+                        sample_timespan = th.as_tensor(
+                            cfc_timespan,
+                            device=sample_features.device,
+                            dtype=sample_features.dtype,
+                        ).reshape(1, 1, 1)
+                        out, state = rnn_module(
+                            sample_features.reshape(1, 1, -1),
+                            sample_state.reshape(1, -1),
+                            timespans=sample_timespan,
+                        )
+                        sample_outputs.append(out)
+                        sample_hidden.append(state)
+                    step_out = th.cat(sample_outputs, dim=0)
+                    hidden = th.cat(sample_hidden, dim=0)
                 else:
                     if hidden_size is None:
                         raise RuntimeError("Unable to resolve CfC hidden size for timespan shaping.")
@@ -456,8 +481,19 @@ class RecurrentActorCriticLTCPolicy(RecurrentActorCriticCfCPolicy):
     recurrent_cell_cls = LTC
 
 
+class RecurrentActorCriticNCPCfCPolicy(RecurrentActorCriticCfCPolicy):
+    """CfC recurrent policy with an NCP sparse wiring."""
+
+
 def resolve_algorithm(args) -> tuple[type[PPO] | type[RecurrentPPO], type[ActorCriticPolicy], dict[str, Any]]:
     """Map CLI policy choice to the SB3 algorithm, policy class, and kwargs."""
+    ncp_scale_factor = float(getattr(args, "ncp_scale_factor", 1.0))
+    if ncp_scale_factor <= 0.0:
+        raise ValueError("--ncp-scale-factor must be positive.")
+
+    def scaled_ncp(value: int, minimum: int = 1) -> int:
+        return max(minimum, int(round(value * ncp_scale_factor)))
+
     shared_cfc_kwargs = dict(
         mixed_memory=False,
         # mode="default",
@@ -468,7 +504,7 @@ def resolve_algorithm(args) -> tuple[type[PPO] | type[RecurrentPPO], type[ActorC
             max_log_std=args.max_log_std,
         )
         return PPO, ClampedLogStdActorCriticPolicy, policy_kwargs
-    elif args.policy_type in {"recurrent_ppo", "recurrent_ppo_ltc"}:
+    elif args.policy_type in {"recurrent_ppo", "recurrent_ppo_ltc", "recurrent_ppo_ncp_cfc"}:
         algo_cls = RecurrentPPO
         features_extractor_cls = (
             FlattenExtractor if args.use_flatten_features else MyCfCFeaturesExtractor
@@ -485,9 +521,23 @@ def resolve_algorithm(args) -> tuple[type[PPO] | type[RecurrentPPO], type[ActorC
             lstm_hidden_size=args.cell_size,
             cfc_timespan=args.cfc_timespan,
             cfc_kwargs=shared_cfc_kwargs,
+            ncp_kwargs=(
+                dict(
+                    inter_neurons=scaled_ncp(args.ncp_inter_neurons),
+                    command_neurons=scaled_ncp(args.ncp_command_neurons),
+                    sensory_fanout=scaled_ncp(args.ncp_sensory_fanout),
+                    inter_fanout=scaled_ncp(args.ncp_inter_fanout),
+                    recurrent_command_synapses=scaled_ncp(args.ncp_recurrent_command_synapses, minimum=0),
+                    motor_fanin=scaled_ncp(args.ncp_motor_fanin),
+                )
+                if args.policy_type == "recurrent_ppo_ncp_cfc" else None
+            ),
             max_log_std=args.max_log_std,
         )
-        policy_class = RecurrentActorCriticLTCPolicy if args.policy_type == "recurrent_ppo_ltc" else RecurrentActorCriticCfCPolicy
+        policy_class = {
+            "recurrent_ppo_ltc": RecurrentActorCriticLTCPolicy,
+            "recurrent_ppo_ncp_cfc": RecurrentActorCriticNCPCfCPolicy,
+        }.get(args.policy_type, RecurrentActorCriticCfCPolicy)
         return algo_cls, policy_class, policy_kwargs
 
     raise ValueError(f"Unsupported policy type: {args.policy_type}")
@@ -728,7 +778,7 @@ def render_policy(args):
     while True:
         # Saliency is accumulated per environment until that environment's
         # episode ends, then the most influential observation indices are shown.
-        if args.policy_type == "recurrent_ppo":
+        if args.policy_type in {"recurrent_ppo", "recurrent_ppo_ltc", "recurrent_ppo_ncp_cfc"}:
             step_saliency = _compute_action_saliency_recurrent(
                 model.policy,
                 obs,
@@ -742,7 +792,7 @@ def render_policy(args):
         saliency_sums += step_saliency
         saliency_steps += 1
 
-        if args.policy_type == "recurrent_ppo":
+        if args.policy_type in {"recurrent_ppo", "recurrent_ppo_ltc", "recurrent_ppo_ncp_cfc"}:
             predict_start = time.perf_counter()
             action, state = model.predict(
                 obs,
@@ -857,7 +907,7 @@ def render_policy(args):
                         f"avg_inference_time_ms={avg_inference_time_ms:.3f}\n"
                     )
                     return
-        if args.policy_type == "recurrent_ppo":
+        if args.policy_type in {"recurrent_ppo", "recurrent_ppo_ltc", "recurrent_ppo_ncp_cfc"}:
             episode_starts = dones
             if dones.any():
                 state = None
@@ -894,10 +944,17 @@ def parse_args():
     parser.add_argument(
         "--policy-type",
         type=str,
-        choices=("ppo", "recurrent_ppo", "recurrent_ppo_ltc"),
+        choices=("ppo", "recurrent_ppo", "recurrent_ppo_ltc", "recurrent_ppo_ncp_cfc"),
         default="recurrent_ppo",
         help="Selects between standard PPO (feedforward), Recurrent PPO with CfC, and Recurrent PPO with LTC.",
     )
+    parser.add_argument("--ncp-inter-neurons", type=int, default=32)
+    parser.add_argument("--ncp-command-neurons", type=int, default=24)
+    parser.add_argument("--ncp-sensory-fanout", type=int, default=20)
+    parser.add_argument("--ncp-inter-fanout", type=int, default=16)
+    parser.add_argument("--ncp-recurrent-command-synapses", type=int, default=16)
+    parser.add_argument("--ncp-motor-fanin", type=int, default=20)
+    parser.add_argument("--ncp-scale-factor", type=float, default=1.0)
     parser.add_argument(
         "--use-burn-in",
         action="store_true",
@@ -917,7 +974,7 @@ def parse_args():
     parser.add_argument("--param-input", action="store_true")
     parser.add_argument("--param-input-noise", type=float, default=0.0)
     args = parser.parse_args()
-    if args.policy_type not in {"recurrent_ppo", "recurrent_ppo_ltc"} and args.use_burn_in:
+    if args.policy_type not in {"recurrent_ppo", "recurrent_ppo_ltc", "recurrent_ppo_ncp_cfc"} and args.use_burn_in:
         raise ValueError("--use-burn-in is only supported with recurrent policy types.")
     return args
 

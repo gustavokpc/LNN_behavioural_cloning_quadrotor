@@ -229,7 +229,15 @@ This mode uses [envs/bebop2_figure8_gates_env.py](envs/bebop2_figure8_gates_env.
 - Bebop2 19-state integration through `integrate_state(...)` after selecting `quadrotor_sim_matlab`;
 - gate-plane pass/collision logic, ground collision, out-of-bounds checks, and rollout metrics.
 
-Because `figure8_gates` uses the legacy-style observation vector instead of the 19-value supervised-learning input, use `--policy-type ppo`, `--policy-type recurrent_ppo`, or `--policy-type recurrent_ppo_ltc`. The `bc_ppo` and `residual_ppo` modes remain available for the waypoint environment, but are intentionally rejected for `figure8_gates`.
+Because `figure8_gates` uses the legacy-style observation vector instead of the 19-value supervised-learning input, use `--policy-type ppo`, `--policy-type recurrent_ppo`, `--policy-type recurrent_ppo_ltc`, or `--policy-type recurrent_ppo_ncp_cfc`. The `bc_ppo` and `residual_ppo` modes remain available for the waypoint environment, but are intentionally rejected for `figure8_gates`.
+
+The `recurrent_ppo_ncp_cfc` policy uses a sparsely wired CfC. Its wiring can be
+configured with `--ncp-inter-neurons`, `--ncp-command-neurons`,
+`--ncp-sensory-fanout`, `--ncp-inter-fanout`,
+`--ncp-recurrent-command-synapses`, and `--ncp-motor-fanin`. Their defaults are
+32, 24, 20, 16, 16, and 20 respectively; `--cell-size` sets the number of NCP
+motor/output neurons. `--ncp-scale-factor` scales the six wiring parameters and
+defaults to 1.0.
 
 Small smoke run:
 

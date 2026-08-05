@@ -16,7 +16,10 @@ import argparse
 import csv
 import os
 import re
+import tempfile
 import time
+from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -38,12 +41,47 @@ from .legacy_ppo.drone_ppo_sb3 import (
     resolve_algorithm,
 )
 from ..utils.animation import animate
-from ..utils.dynamics_models import quadrotor_sim_matlab
+from ..utils.dynamics_models import quadrotor_sim_matlab, quadrotor_sim_matlab_randomized
 from ..utils.quadrotor_sim import body_to_world_state
 
 
 RL_ROOT = _RL_ROOT
 PROJECT_ROOT = RL_ROOT.parent
+
+
+@contextmanager
+def _torch_load_zipfile_compat():
+    """Make nested PyTorch checkpoints readable from an SB3 ZIP archive.
+
+    SB3 passes a ``zipfile.ZipExtFile`` to ``torch.load``.  Some PyTorch
+    versions can inspect the nested ZIP but fail while reading one of its
+    records.  Materializing that member as a regular temporary file avoids
+    the incompatible nested-stream path without modifying the checkpoint.
+    """
+    import torch as th
+
+    original_load = th.load
+
+    @wraps(original_load)
+    def load_from_regular_file_if_needed(file_or_path, *args, **kwargs):
+        if isinstance(file_or_path, (str, os.PathLike)):
+            return original_load(file_or_path, *args, **kwargs)
+
+        read = getattr(file_or_path, "read", None)
+        if read is None:
+            return original_load(file_or_path, *args, **kwargs)
+
+        payload = read()
+        with tempfile.NamedTemporaryFile(suffix=".pth") as temporary_file:
+            temporary_file.write(payload)
+            temporary_file.flush()
+            return original_load(temporary_file.name, *args, **kwargs)
+
+    th.load = load_from_regular_file_if_needed
+    try:
+        yield
+    finally:
+        th.load = original_load
 
 
 def _track_artifact_name(track: str) -> str:
@@ -83,7 +121,7 @@ def _commands01_to_rpm(actions01: np.ndarray) -> np.ndarray:
 
 def _synchronize_recurrent_timespan(model, args: argparse.Namespace) -> None:
     """Use the environment dt as the sole time source for loaded CfC/LTC policies."""
-    if args.policy_type not in {"recurrent_ppo", "recurrent_ppo_ltc"}:
+    if args.policy_type not in {"recurrent_ppo", "recurrent_ppo_ltc", "recurrent_ppo_ncp_cfc"}:
         return
 
     timespan = float(args.dt)
@@ -224,7 +262,7 @@ def make_env(
         if args.policy_type in {"bc_ppo", "residual_ppo"}:
             raise ValueError(
                 "--track figure8_gates uses legacy-style observations; "
-                "choose --policy-type ppo, recurrent_ppo, or recurrent_ppo_ltc."
+                "choose --policy-type ppo, recurrent_ppo, recurrent_ppo_ltc, or recurrent_ppo_ncp_cfc."
             )
         figure8_start_pos = None
         figure8_start_pos_jitter = 0.5
@@ -260,6 +298,9 @@ def make_env(
             no_ang_vel=args.no_ang_vel,
             randomize_external_moments=args.randomize_external_moments,
             action_range=args.figure8_action_range,
+            randomize_dynamics=args.randomize_dynamics,
+            randomization_factor=args.randomization_factor,
+            randomize_aerodynamic_coefficients=args.randomize_aerodynamic_coefficients,
             seed=seed,
         )
         if figure8_start_pos is not None:
@@ -268,7 +309,7 @@ def make_env(
         return Bebop2Figure8GatesEnv(**env_kwargs)
     if terminate_on_waypoint is None:
         terminate_on_waypoint = True
-    normalize_observations = bool(args.normalize_observations and args.policy_type in {"ppo", "recurrent_ppo", "recurrent_ppo_ltc"})
+    normalize_observations = bool(args.normalize_observations and args.policy_type in {"ppo", "recurrent_ppo", "recurrent_ppo_ltc", "recurrent_ppo_ncp_cfc"})
     env_kwargs = dict(
         num_envs=num_envs,
         waypoint_radius=args.dist_error,
@@ -309,7 +350,13 @@ def train(args: argparse.Namespace) -> None:
         model_path = Path(args.cont)
         if not model_path.exists():
             raise FileNotFoundError(f"Checkpoint '{model_path}' not found.")
-        model = algo_cls.load(model_path, env=env, device=args.device, custom_objects={"policy_class": policy_class})
+        with _torch_load_zipfile_compat():
+            model = algo_cls.load(
+                model_path,
+                env=env,
+                device=args.device,
+                custom_objects={"policy_class": policy_class},
+            )
     else:
         algo_kwargs: dict[str, Any] = {}
         model = algo_cls(
@@ -405,12 +452,13 @@ def render(args: argparse.Namespace) -> None:
     algo_cls, policy_class, _ = resolve_bebop2_algorithm(args)
     if args.track == "figure8_gates":
         env = make_env(args, num_envs=1, seed=args.seed)
-        model = algo_cls.load(
-            args.cont,
-            env=env,
-            device=args.device,
-            custom_objects={"policy_class": policy_class},
-        )
+        with _torch_load_zipfile_compat():
+            model = algo_cls.load(
+                args.cont,
+                env=env,
+                device=args.device,
+                custom_objects={"policy_class": policy_class},
+            )
         _synchronize_recurrent_timespan(model, args)
         obs = env.reset()
         state = None
@@ -477,12 +525,13 @@ def render(args: argparse.Namespace) -> None:
         return
 
     load_env = make_env(args, num_envs=1, seed=args.seed)
-    model = algo_cls.load(
-        args.cont,
-        env=load_env,
-        device=args.device,
-        custom_objects={"policy_class": policy_class},
-    )
+    with _torch_load_zipfile_compat():
+        model = algo_cls.load(
+            args.cont,
+            env=load_env,
+            device=args.device,
+            custom_objects={"policy_class": policy_class},
+        )
     _synchronize_recurrent_timespan(model, args)
     load_env.close()
 
@@ -564,7 +613,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--batch-size", type=int, default=4096)
     parser.add_argument("--gamma", type=float, default=0.999)
     parser.add_argument("--lam", type=float, default=0.95)
-    parser.add_argument("--clip-param", type=float, default=0.05)
+    parser.add_argument("--clip-param", type=float, default=0.1)
     parser.add_argument("--entropy-coeff", type=float, default=0.0)
     parser.add_argument("--vf-coeff", type=float, default=0.5)
     parser.add_argument("--total-timesteps", type=int, default=100_000_000)
@@ -573,13 +622,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--n-epochs", type=int, default=5)
     parser.add_argument("--cfc-timespan", type=float, default=0.01)
-    parser.add_argument("--n-epochs", type=int, default=3)
     parser.add_argument("--use-flatten-features", type=bool, default=True)
     parser.add_argument(
         "--policy-type",
-        choices=("ppo", "recurrent_ppo", "recurrent_ppo_ltc", "bc_ppo", "residual_ppo"),
+        choices=("ppo", "recurrent_ppo", "recurrent_ppo_ltc", "recurrent_ppo_ncp_cfc", "bc_ppo", "residual_ppo"),
         default="recurrent_ppo",
     )
+    parser.add_argument("--ncp-inter-neurons", type=int, default=32)
+    parser.add_argument("--ncp-command-neurons", type=int, default=24)
+    parser.add_argument("--ncp-sensory-fanout", type=int, default=20)
+    parser.add_argument("--ncp-inter-fanout", type=int, default=16)
+    parser.add_argument("--ncp-recurrent-command-synapses", type=int, default=16)
+    parser.add_argument("--ncp-motor-fanin", type=int, default=20)
+    parser.add_argument("--ncp-scale-factor", type=float, default=1.0)
     parser.add_argument(
         "--bc-config",
         type=str,
@@ -596,7 +651,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dt", type=float, default=0.01)
     parser.add_argument("--tau", type=float, default=0.06)
     parser.add_argument("--max-steps", type=int, default=3000)
-    parser.add_argument("--max-steps", type=int, default=6000)
     parser.add_argument("--track", choices=("square_waypoints", "figure8_gates"), default="square_waypoints")
     parser.add_argument(
         "--figure8-action-range",
@@ -683,6 +737,9 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--log-std-init", type=float, default=-3.0)
     parser.add_argument("--output-tag", type=str, default="")
+    parser.add_argument("--randomize-dynamics", action="store_true")
+    parser.add_argument("--randomization-factor", type=float, default=0.30)
+    parser.add_argument("--randomize-aerodynamic-coefficients", action="store_true")
     args = parser.parse_args()
     track_artifact = _track_artifact_name(args.track)
     if not args.tensorboard_log:
@@ -692,7 +749,7 @@ def parse_args() -> argparse.Namespace:
     if args.track == "figure8_gates" and args.policy_type in {"bc_ppo", "residual_ppo"}:
         raise ValueError(
             "--track figure8_gates uses legacy-style observations; "
-            "choose --policy-type ppo, recurrent_ppo, or recurrent_ppo_ltc."
+            "choose --policy-type ppo, recurrent_ppo, recurrent_ppo_ltc, or recurrent_ppo_ncp_cfc."
         )
     return args
 
@@ -704,7 +761,7 @@ def resolve_bebop2_algorithm(args):
             bc_checkpoint_path=args.bc_checkpoint,
             project_root=PROJECT_ROOT,
             value_hidden_dim=args.bc_value_hidden_dim,
-            max_log_std=args.max_log_std,   
+            max_log_std=args.max_log_std,
             log_std_init=args.log_std_init,
         )
         return PPO, BCInitializedActorCriticPolicy, policy_kwargs
