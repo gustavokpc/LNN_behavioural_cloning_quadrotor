@@ -1,9 +1,10 @@
 # -*- coding: utf-8 -*-
 """Named dataset normalization profiles and legacy Bebop 1 constants.
 
-The available profiles are ``bebop1``, ``bebop2_tau_0_06`` and
-``bebop2_tau_0_03``. Use :func:`get_normalization_limits` instead of importing
-one profile directly when the choice comes from configuration.
+The available profiles are ``bebop1``, ``bebop2_tau_0_06``,
+``bebop2_tau_0_03`` and ``bebop2_tau_0_01``. Use
+:func:`get_normalization_limits` instead of importing one profile directly
+when the choice comes from configuration.
 """
 
 import torch
@@ -120,6 +121,42 @@ BEBOP2_TAU_0_03_MAX = {
     'omega_max': 9999.99999382,
 }
 
+BEBOP2_TAU_0_01_MIN = {
+    'dx': -6.99057068,
+    'dy': -7.01238574,
+    'dz': -5.51240056,
+    'vx': -4.64494613,
+    'vy': -4.67205432,
+    'vz': -1.69694665,
+    'phi': -1.35086408,
+    'theta': -1.01096723,
+    'psi': -3.77004449,
+    'p': -13.09012506,
+    'q': -12.19801310,
+    'r': -3.89951527,
+    'Mx_ext': -0.03999910,
+    'My_ext': -0.03999795,
+    'Mz_ext': -0.00999981,
+    'omega_min': 5000.01181729,
+}
+BEBOP2_TAU_0_01_MAX = {
+    'dx': 7.04740650,
+    'dy': 6.98515982,
+    'dz': 5.38788487,
+    'vx': 4.68007527,
+    'vy': 4.70767719,
+    'vz': 2.08573651,
+    'phi': 1.28613548,
+    'theta': 1.04965066,
+    'psi': 3.81813365,
+    'p': 12.07695084,
+    'q': 12.70752101,
+    'r': 4.00183560,
+    'Mx_ext': 0.03999963,
+    'My_ext': 0.03999934,
+    'Mz_ext': 0.00999978,
+    'omega_max': 9999.99485303,
+}
 
 def _add_derived_feature_limits(limits_min, limits_max):
     """Add bounds for norm-based features derived from component channels."""
@@ -137,17 +174,20 @@ def _add_derived_feature_limits(limits_min, limits_max):
 
 _add_derived_feature_limits(BEBOP2_TAU_0_06_MIN, BEBOP2_TAU_0_06_MAX)
 _add_derived_feature_limits(BEBOP2_TAU_0_03_MIN, BEBOP2_TAU_0_03_MAX)
+_add_derived_feature_limits(BEBOP2_TAU_0_01_MIN, BEBOP2_TAU_0_01_MAX)
 
 NORMALIZATION_LIMITS = {
     'bebop1': (BEBOP1_MIN, BEBOP1_MAX),
     'bebop2_tau_0_06': (BEBOP2_TAU_0_06_MIN, BEBOP2_TAU_0_06_MAX),
     'bebop2_tau_0_03': (BEBOP2_TAU_0_03_MIN, BEBOP2_TAU_0_03_MAX),
+    'bebop2_tau_0_01': (BEBOP2_TAU_0_01_MIN, BEBOP2_TAU_0_01_MAX),
 }
 
 _NORMALIZATION_ALIASES = {
     'bebop2': 'bebop2_tau_0_06',
     'bebop2_tau_0.06': 'bebop2_tau_0_06',
     'bebop2_tau_0.03': 'bebop2_tau_0_03',
+    'bebop2_tau_0.01': 'bebop2_tau_0_01',
     # Legacy module names accepted at CLI boundaries. The old modules no longer
     # need to exist; all values still come from this file.
     'utils.normalization_limits': 'bebop1',

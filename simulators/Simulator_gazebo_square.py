@@ -10,10 +10,9 @@ import sys
 from pathlib import Path
 from typing import Callable, Iterable
 
-_RUNS_DIR = Path(__file__).resolve().parent / "runs"
-os.environ.setdefault("MPLCONFIGDIR", str(_RUNS_DIR / ".matplotlib"))
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_PLOTS_DIR = PROJECT_ROOT / "organized_plots" / "sl_runs" / "generated" / "python_controller"
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/lnn_matplotlib")
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 REPO_ROOT = PROJECT_ROOT.parent
@@ -35,7 +34,7 @@ from Simulator_gazebo_square_C import (
 )
 from utils.config import load_yaml
 from utils.data import expand_feature_labels, get_norm_vectors
-from utils.dynamics_models import available_dynamics_models, get_dynamics_info, set_dynamics_model
+from utils.dynamics_models import available_dynamics_models, get_dynamics_info, get_dynamics_model, set_dynamics_model
 from utils.normalization_limits import resolve_normalization_profile
 from utils.quadrotor_sim import (
     build_input_vector,
@@ -83,6 +82,17 @@ def _resolve_model(
     config_path = model_config or project_root / default_config
     norm_profile = resolve_normalization_profile(normalization_limits or default_norm)
     return ckpt_path, config_path, norm_profile
+
+
+def _override_rotor_yaw_sign(sign: float | None) -> None:
+    if sign is None:
+        return
+    model = get_dynamics_model()
+    if not hasattr(model, "set_rotor_yaw_sign"):
+        raise AttributeError(
+            f"Dynamics model '{model.INFO.name}' does not support a rotor yaw sign override."
+        )
+    model.set_rotor_yaw_sign(sign)
 
 
 def _norm_vectors(labels: list[str], normalization_limits: str) -> tuple[np.ndarray, np.ndarray]:
@@ -202,12 +212,14 @@ def simulate_gazebo_square_python(
     dynamics_model: str,
     normalization_limits: str,
     tau: float | None = None,
+    rotor_yaw_sign: float | None = None,
     device_name: str = "cpu",
     input_noise_std: dict[str, float] | None = None,
     input_noise_seed: int | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, int]:
     set_dynamics_model(dynamics_model)
     _override_dynamics_tau(tau)
+    _override_rotor_yaw_sign(rotor_yaw_sign)
     dynamics_info = get_dynamics_info()
     input_noise_rng = np.random.default_rng(input_noise_seed) if input_noise_std else None
     device = torch.device("cuda" if device_name == "auto" and torch.cuda.is_available() else device_name)
@@ -402,6 +414,13 @@ def parse_args(cli_args: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--time-simulation", type=float, default=60.0)
     parser.add_argument("--dist-error", type=float, default=0.1)
     parser.add_argument("--tau", type=float, default=None)
+    parser.add_argument(
+        "--rotor-yaw-sign",
+        type=float,
+        choices=(-1.0, 1.0),
+        default=None,
+        help="Override the rotor reaction-torque sign for dynamics models that support it.",
+    )
     parser.add_argument("--input-noise-p-sigma", type=float, default=0.0, help="Gaussian input noise sigma for p [rad/s].")
     parser.add_argument("--input-noise-q-sigma", type=float, default=0.0, help="Gaussian input noise sigma for q [rad/s].")
     parser.add_argument("--input-noise-r-sigma", type=float, default=0.0, help="Gaussian input noise sigma for r [rad/s].")
@@ -419,12 +438,12 @@ def parse_args(cli_args: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--action-plot-output",
         type=Path,
-        default=Path(__file__).resolve().parent / "runs" / "square_python_actions.png",
+        default=_PLOTS_DIR / "square_python_actions.png",
     )
     parser.add_argument(
         "--signals-plot-output",
         type=Path,
-        default=Path(__file__).resolve().parent / "runs" / "square_python_all_state_commands.png",
+        default=_PLOTS_DIR / "square_python_all_state_commands.png",
     )
     parser.add_argument("--record", action="store_true")
     parser.add_argument("--output", default="gazebo_square_checkpoint.mp4")
@@ -468,6 +487,7 @@ def main(cli_args: Iterable[str] | None = None) -> None:
         dynamics_model=args.dynamics_model,
         normalization_limits=normalization_limits,
         tau=args.tau,
+        rotor_yaw_sign=args.rotor_yaw_sign,
         device_name=args.device,
         input_noise_std=input_noise_std or None,
         input_noise_seed=args.input_noise_seed,

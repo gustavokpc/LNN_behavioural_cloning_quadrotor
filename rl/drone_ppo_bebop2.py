@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any
 
 _RL_ROOT = Path(__file__).resolve().parent
-os.environ.setdefault("MPLCONFIGDIR", str(_RL_ROOT / "runs" / ".matplotlib"))
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/lnn_rl_matplotlib")
 
 import numpy as np
 from stable_baselines3.common.callbacks import CheckpointCallback
@@ -47,6 +47,7 @@ from ..utils.quadrotor_sim import body_to_world_state
 
 RL_ROOT = _RL_ROOT
 PROJECT_ROOT = RL_ROOT.parent
+RL_OUTPUT_ROOT = PROJECT_ROOT / "organized_plots" / "rl_runs"
 
 
 @contextmanager
@@ -102,7 +103,7 @@ def _action_output_stem(args: argparse.Namespace) -> Path:
         return output.with_suffix("") if output.suffix else output
     checkpoint_stem = _safe_filename(Path(args.cont).stem)
     track_artifact = _track_artifact_name(args.track)
-    return RL_ROOT / "runs" / "action_plots" / track_artifact / args.policy_type / checkpoint_stem
+    return RL_OUTPUT_ROOT / "action_plots" / track_artifact / args.policy_type / checkpoint_stem
 
 
 def _signals_output_path(args: argparse.Namespace) -> Path:
@@ -111,7 +112,7 @@ def _signals_output_path(args: argparse.Namespace) -> Path:
         return output if output.suffix else output.with_suffix(".png")
     checkpoint_stem = _safe_filename(Path(args.cont).stem)
     track_artifact = _track_artifact_name(args.track)
-    return RL_ROOT / "runs" / "signal_plots" / track_artifact / args.policy_type / f"{checkpoint_stem}.png"
+    return RL_OUTPUT_ROOT / "signal_plots" / track_artifact / args.policy_type / f"{checkpoint_stem}.png"
 
 
 def _commands01_to_rpm(actions01: np.ndarray) -> np.ndarray:
@@ -291,6 +292,7 @@ def make_env(
             param_input=args.param_input,
             param_input_noise=args.param_input_noise,
             motor_tau=args.motor_tau,
+            rotor_yaw_sign=args.rotor_yaw_sign,
             obs_rate_noise_std=args.obs_rate_noise_std,
             invert_yaw_observation=args.invert_yaw_observation,
             low_obs=args.low_obs,
@@ -700,6 +702,13 @@ def parse_args() -> argparse.Namespace:
         help="Motor-response time constant in seconds for the Python Bebop2 dynamics.",
     )
     parser.add_argument(
+        "--rotor-yaw-sign",
+        type=float,
+        choices=(-1.0, 1.0),
+        default=1.0,
+        help="Sign applied to the Bebop2 rotor reaction torque in yaw.",
+    )
+    parser.add_argument(
         "--obs-rate-noise-std",
         type=float,
         nargs=3,
@@ -727,13 +736,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--action-plot-output",
         default="",
-        help="Optional output path for --plot-actions. Defaults to rl/runs/action_plots/<track>/<policy>/<checkpoint>.png/.csv.",
+        help="Optional output path for --plot-actions. Defaults to organized_plots/rl_runs/action_plots/<track>/<policy>/<checkpoint>.png/.csv.",
     )
     parser.add_argument("--plot-signals", action="store_true")
     parser.add_argument(
         "--signals-plot-output",
         default="",
-        help="Optional PNG path for --plot-signals. Defaults to rl/runs/signal_plots/<track>/<policy>/<checkpoint>.png.",
+        help="Optional PNG path for --plot-signals. Defaults to organized_plots/rl_runs/signal_plots/<track>/<policy>/<checkpoint>.png.",
     )
     parser.add_argument("--log-std-init", type=float, default=-3.0)
     parser.add_argument("--output-tag", type=str, default="")
@@ -743,9 +752,9 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     track_artifact = _track_artifact_name(args.track)
     if not args.tensorboard_log:
-        args.tensorboard_log = str(RL_ROOT / "runs" / track_artifact)
+        args.tensorboard_log = str(RL_OUTPUT_ROOT / "tensorboard" / track_artifact)
     if not args.output:
-        args.output = str(RL_ROOT / "runs" / f"{track_artifact}_rollout.mp4")
+        args.output = str(RL_OUTPUT_ROOT / "videos" / track_artifact / f"{track_artifact}_rollout.mp4")
     if args.track == "figure8_gates" and args.policy_type in {"bc_ppo", "residual_ppo"}:
         raise ValueError(
             "--track figure8_gates uses legacy-style observations; "

@@ -10,8 +10,9 @@ import os
 from pathlib import Path
 from typing import Iterable
 
-_RUNS_DIR = Path(__file__).resolve().parent / "runs"
-os.environ.setdefault("MPLCONFIGDIR", str(_RUNS_DIR / ".matplotlib"))
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_PLOTS_DIR = PROJECT_ROOT / "organized_plots" / "sl_runs" / "generated" / "c_controller"
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/lnn_matplotlib")
 
 import numpy as np
 
@@ -370,12 +371,12 @@ def parse_args(cli_args: Iterable[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--action-plot-output",
         type=Path,
-        default=Path(__file__).resolve().parent / "runs" / "cfc_sl_bebop2_actions.png",
+        default=_PLOTS_DIR / "cfc_sl_bebop2_actions.png",
     )
     parser.add_argument(
         "--signals-plot-output",
         type=Path,
-        default=Path(__file__).resolve().parent / "runs" / "square_all_state_commands.png",
+        default=_PLOTS_DIR / "square_all_state_commands.png",
     )
     parser.add_argument("--record", action="store_true")
     parser.add_argument("--output", default="gazebo_square_cfc.mp4")
@@ -434,7 +435,7 @@ def main(cli_args: Iterable[str] | None = None) -> None:
 
     if args.plot_actions:
         import csv
-        _RUNS_DIR.mkdir(parents=True, exist_ok=True)
+        _PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
         import matplotlib
 
