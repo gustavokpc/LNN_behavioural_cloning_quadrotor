@@ -56,8 +56,8 @@ MODEL_PRESETS = {
         "bebop2_tau_0_06",
     ),
     "CFC": (
-        "checkpoints/bebop1/new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.ckpt",
-        "configs/bebop1/new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.yaml",
+        "checkpoints/bebop1/bebop1_conv_cfc_h=64_seq=1_epoch=18_val_loss=0.000142.ckpt",
+        "configs/bebop1/bebop1_conv_cfc_h=64_seq=1_epoch=18_val_loss=0.000142.yaml",
         "bebop1",
     ),
 }

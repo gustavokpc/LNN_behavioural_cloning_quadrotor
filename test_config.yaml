@@ -1,4 +1,4 @@
-model_path: "mlp_epoch=19_val_loss=0.003130.ckpt"  # Saved checkpoint/config stem from training
+model_path: "bebop1_mlp_seq=1_epoch=19_val_loss=0.003130.ckpt"  # Saved checkpoint/config stem from training
 
 dataset:  # Test dataset selection
   desired_trajectories: 1

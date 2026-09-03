@@ -24,16 +24,16 @@ from utils.quadrotor_sim_c import rollout_c_controller
 
 
 MODEL_PRESETS = {
-    "MLP": ("configs/bebop1/mlp_epoch=19_val_loss=0.003130.yaml", "C_codes/bebop1/MLP"),
-    "LTC": ("configs/bebop1/LTC_64_neurons_seq_1_epoch=18_val_loss=0.000193.yaml", "C_codes/bebop1/LTC"),
-    "RNN": ("configs/bebop1/RNN_64_neurons_seq_1_epoch=17_val_loss=0.000147.yaml", "C_codes/bebop1/RNN"),
-    "CONV_CFC_DEFAULT": ("configs/bebop1/conv_cfc_default_n64_epoch=17_val_loss=0.000326.yaml", "C_codes/bebop1/CONV_CFC_DEFAULT"),
-    "CFC": ("configs/bebop1/new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.yaml", "C_codes/bebop1/CFC"),
-    "CFC_PURE": ("configs/bebop1/new_CFC_pure_64_neurons_seq_1_epoch=17_val_loss=0.000203.yaml", "C_codes/bebop1/CFC_PURE"),
-    "CTRNN": ("configs/bebop1/new_CTRNN_64_neurons_seq_1_epoch=19_val_loss=0.000150.yaml", "C_codes/bebop1/CTRNN"),
-    "GRU": ("configs/bebop1/new_GRU_64_neurons_seq_1_epoch=19_val_loss=0.000088.yaml", "C_codes/bebop1/GRU"),
-    "LSTM": ("configs/bebop1/new_LSTM_64_neurons_seq_1_epoch=17_val_loss=0.000092.yaml", "C_codes/bebop1/LSTM"),
-    "NCP_CFC": ("configs/bebop1/new_NCP_CFC_60_neurons_seq_1_epoch=18_val_loss=0.000143.yaml", "C_codes/bebop1/NCP_CFC"),
+    "MLP": ("configs/bebop1/bebop1_mlp_seq=1_epoch=19_val_loss=0.003130.yaml", "C_codes/bebop1/MLP"),
+    "LTC": ("configs/bebop1/bebop1_conv_ltc_h=64_seq=1_epoch=18_val_loss=0.000193.yaml", "C_codes/bebop1/LTC"),
+    "RNN": ("configs/bebop1/bebop1_conv_rnn_h=64_seq=1_epoch=17_val_loss=0.000147.yaml", "C_codes/bebop1/RNN"),
+    "CONV_CFC_DEFAULT": ("configs/bebop1/bebop1_conv_cfc_h=64_seq=1_with_dt_epoch=17_val_loss=0.000326.yaml", "C_codes/bebop1/CONV_CFC_DEFAULT"),
+    "CFC": ("configs/bebop1/bebop1_conv_cfc_h=64_seq=1_epoch=18_val_loss=0.000142.yaml", "C_codes/bebop1/CFC"),
+    "CFC_PURE": ("configs/bebop1/bebop1_conv_cfc_pure_h=64_seq=1_epoch=17_val_loss=0.000203.yaml", "C_codes/bebop1/CFC_PURE"),
+    "CTRNN": ("configs/bebop1/bebop1_conv_ctrnn_h=64_seq=1_epoch=19_val_loss=0.000150.yaml", "C_codes/bebop1/CTRNN"),
+    "GRU": ("configs/bebop1/bebop1_conv_gru_h=64_seq=1_epoch=19_val_loss=0.000088.yaml", "C_codes/bebop1/GRU"),
+    "LSTM": ("configs/bebop1/bebop1_conv_lstm_h=64_seq=1_epoch=17_val_loss=0.000092.yaml", "C_codes/bebop1/LSTM"),
+    "NCP_CFC": ("configs/bebop1/bebop1_conv_ncp_cfc_h=60_seq=1_epoch=18_val_loss=0.000143.yaml", "C_codes/bebop1/NCP_CFC"),
     "NOVA_VERSAOZE": (
         "configs/bebop2/NOVA_VERSAOZE_BEBP2_conv_cfc_default_n64_bebop2_epoch=19_val_loss=0.000098.yaml",
         "C_codes/bebop2/NOVA_VERSAOZE_BEBP2_CONV_CFC",

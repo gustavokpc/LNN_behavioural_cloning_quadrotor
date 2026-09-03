@@ -27,7 +27,7 @@ from pytorch_lightning.loggers import WandbLogger
 
 from utils.ablation import DEFAULT_FEATURE_GROUPS, drop_features_from_labels, resolve_ablation_features
 from utils.config import ensure_dir, load_yaml, save_yaml
-from utils.data import DatasetController, get_data, transform_to_sequence
+from utils.data import DatasetController, align_state_action_targets, get_data, transform_to_sequence
 from utils.lightning import Lightning_Model
 from utils.model_builder import build_controller_network, resolve_scale_factor
 
@@ -166,6 +166,23 @@ def _prepare_arrays(config: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray, n
         val_input = _maybe_sequence(val_input, seq_len)
         train_output = train_output[:, :, (seq_len - 1):]
         val_output = val_output[:, :, (seq_len - 1):]
+
+    # Target alignment is applied only after history windows are constructed.
+    # This makes a window ending at state_t pair with action_t (default) or
+    # action_t+1, while retaining the trajectory axis and therefore preventing
+    # any pairing across episode boundaries.
+    target_alignment = dataset_cfg.get("target_alignment", "action_t")
+    train_input, train_output = align_state_action_targets(
+        train_input, train_output, target_alignment
+    )
+    val_input, val_output = align_state_action_targets(
+        val_input, val_output, target_alignment
+    )
+    if dataset_cfg.get("equalize_alignment_horizon", False) and target_alignment == "action_t":
+        # Next-step variants cannot use the final state.  Drop the matching
+        # final same-step pair as well so A/B/C/D contain identical counts.
+        train_input, train_output = train_input[:, :, :-1, ...], train_output[:, :, :-1]
+        val_input, val_output = val_input[:, :, :-1, ...], val_output[:, :, :-1]
 
     if dataset_cfg.get("with_delay", False):
         delay = int(dataset_cfg.get("delay_steps", 2))

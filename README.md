@@ -78,16 +78,16 @@ Preset models available through `--model`:
 
 | `--model` | Config | C export |
 | --- | --- | --- |
-| `CFC` | `configs/new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.yaml` | `C_codes/CFC` |
-| `CFC_PURE` | `configs/new_CFC_pure_64_neurons_seq_1_epoch=17_val_loss=0.000203.yaml` | `C_codes/CFC_PURE` |
-| `CONV_CFC_DEFAULT` | `configs/conv_cfc_default_n64_epoch=17_val_loss=0.000326.yaml` | `C_codes/CONV_CFC_DEFAULT` |
-| `NCP_CFC` | `configs/new_NCP_CFC_60_neurons_seq_1_epoch=18_val_loss=0.000143.yaml` | `C_codes/NCP_CFC` |
-| `LTC` | `configs/LTC_64_neurons_seq_1_epoch=18_val_loss=0.000193.yaml` | `C_codes/LTC` |
-| `CTRNN` | `configs/new_CTRNN_64_neurons_seq_1_epoch=19_val_loss=0.000150.yaml` | `C_codes/CTRNN` |
-| `RNN` | `configs/RNN_64_neurons_seq_1_epoch=17_val_loss=0.000147.yaml` | `C_codes/RNN` |
-| `GRU` | `configs/new_GRU_64_neurons_seq_1_epoch=19_val_loss=0.000088.yaml` | `C_codes/GRU` |
-| `LSTM` | `configs/new_LSTM_64_neurons_seq_1_epoch=17_val_loss=0.000092.yaml` | `C_codes/LSTM` |
-| `MLP` | `configs/mlp_epoch=19_val_loss=0.003130.yaml` | `C_codes/MLP` |
+| `CFC` | `configs/bebop1_conv_cfc_h=64_seq=1_epoch=18_val_loss=0.000142.yaml` | `C_codes/CFC` |
+| `CFC_PURE` | `configs/bebop1_conv_cfc_pure_h=64_seq=1_epoch=17_val_loss=0.000203.yaml` | `C_codes/CFC_PURE` |
+| `CONV_CFC_DEFAULT` | `configs/bebop1_conv_cfc_h=64_seq=1_with_dt_epoch=17_val_loss=0.000326.yaml` | `C_codes/CONV_CFC_DEFAULT` |
+| `NCP_CFC` | `configs/bebop1_conv_ncp_cfc_h=60_seq=1_epoch=18_val_loss=0.000143.yaml` | `C_codes/NCP_CFC` |
+| `LTC` | `configs/bebop1_conv_ltc_h=64_seq=1_epoch=18_val_loss=0.000193.yaml` | `C_codes/LTC` |
+| `CTRNN` | `configs/bebop1_conv_ctrnn_h=64_seq=1_epoch=19_val_loss=0.000150.yaml` | `C_codes/CTRNN` |
+| `RNN` | `configs/bebop1_conv_rnn_h=64_seq=1_epoch=17_val_loss=0.000147.yaml` | `C_codes/RNN` |
+| `GRU` | `configs/bebop1_conv_gru_h=64_seq=1_epoch=19_val_loss=0.000088.yaml` | `C_codes/GRU` |
+| `LSTM` | `configs/bebop1_conv_lstm_h=64_seq=1_epoch=17_val_loss=0.000092.yaml` | `C_codes/LSTM` |
+| `MLP` | `configs/bebop1_mlp_seq=1_epoch=19_val_loss=0.003130.yaml` | `C_codes/MLP` |
 
 For example, `--model CFC` launches the Bebop1 CfC export in `C_codes/CFC`; `--model GRU` launches the Bebop1 GRU export; and so on. These presets are convenient when the config and C folder are already listed above.
 

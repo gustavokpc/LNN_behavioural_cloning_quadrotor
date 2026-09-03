@@ -4,3 +4,6 @@ rl/checkpoints/**
 !rl/checkpoints/.gitkeep
 rl/runs/**
 !rl/runs/.gitkeep
+C_codes/bebop1
+checkpoints
+configs

@@ -79,8 +79,8 @@ Full hot-start training command with the current defaults written explicitly:
 ```bash
 .venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
   --policy-type bc_ppo \
-  --bc-config LNN_behavioural_cloning_quadrotor/configs/new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.yaml \
-  --bc-checkpoint new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.ckpt \
+  --bc-config LNN_behavioural_cloning_quadrotor/configs/bebop1_conv_cfc_h=64_seq=1_epoch=18_val_loss=0.000142.yaml \
+  --bc-checkpoint bebop1_conv_cfc_h=64_seq=1_epoch=18_val_loss=0.000142.ckpt \
   --num-envs 32 \
   --seed 0 \
   --learning-rate 0.0003 \
@@ -162,8 +162,8 @@ The resulting SB3 policy is saved under `rl/checkpoints/bebop2_waypoints/residua
 The default supervised checkpoint/config used by `bc_ppo` are:
 
 ```text
---bc-config LNN_behavioural_cloning_quadrotor/configs/new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.yaml
---bc-checkpoint new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.ckpt
+--bc-config LNN_behavioural_cloning_quadrotor/configs/bebop1_conv_cfc_h=64_seq=1_epoch=18_val_loss=0.000142.yaml
+--bc-checkpoint bebop1_conv_cfc_h=64_seq=1_epoch=18_val_loss=0.000142.ckpt
 ```
 
 Visualize a trained checkpoint:
@@ -289,8 +289,8 @@ Render a trained figure-8 checkpoint with the legacy gate viewer:
 | `--device` | `auto` | SB3/PyTorch device: `auto`, `cpu`, or CUDA device string. |
 | `--n-epochs` | `10` | PPO optimization epochs per rollout. |
 | `--use-flatten-features` | `True` | Feature extractor choice for `recurrent_ppo`. |
-| `--bc-config` | `configs/new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.yaml` | YAML used to rebuild the supervised CfC for `bc_ppo`. |
-| `--bc-checkpoint` | `new_CFC_64_neurons_seq_1_epoch=18_val_loss=0.000142.ckpt` | Supervised CfC checkpoint used to initialize `bc_ppo`. |
+| `--bc-config` | `configs/bebop1_conv_cfc_h=64_seq=1_epoch=18_val_loss=0.000142.yaml` | YAML used to rebuild the supervised CfC for `bc_ppo`. |
+| `--bc-checkpoint` | `bebop1_conv_cfc_h=64_seq=1_epoch=18_val_loss=0.000142.ckpt` | Supervised CfC checkpoint used to initialize `bc_ppo`. |
 | `--bc-value-hidden-dim` | `64` | Critic hidden size used by `bc_ppo`. |
 | `--residual-scale` | `0.05` | Residual correction magnitude for `residual_ppo`; the final action is `clip(CfC + residual_scale * PPO, 0, 1)`. |
 | `--cont` | empty | Continue from an existing SB3 `.zip` checkpoint. |

@@ -57,10 +57,15 @@ class Bebop2WaypointEnv(VecEnv):
         normalize_observations: bool = False,
         normalization_limits: str = "bebop2_tau_0_06",
         randomize_external_moments: bool = True,
+        point_to_point: bool = False,
+        success_speed: float = 0.25,
+        success_attitude: float = 0.30,
+        motor_tau: float = 0.06,
         seed: int | None = None,
     ):
         self.seed(seed)
         set_dynamics_model("quadrotor_sim_matlab")
+        quadrotor_sim_matlab.set_motor_tau(motor_tau)
 
         self.waypoints = np.asarray(waypoints, dtype=np.float32)
         self.start_pos = np.asarray(start_pos, dtype=np.float32)
@@ -74,6 +79,9 @@ class Bebop2WaypointEnv(VecEnv):
         self.terminate_on_waypoint = bool(terminate_on_waypoint)
         self.normalize_observations = bool(normalize_observations)
         self.randomize_external_moments = bool(randomize_external_moments)
+        self.point_to_point = bool(point_to_point)
+        self.success_speed = float(success_speed)
+        self.success_attitude = float(success_attitude)
         norm_min, norm_max = get_norm_vectors(STATE_LABELS, normalization_limits)
         self.obs_min = norm_min.reshape(-1).astype(np.float32)
         self.obs_max = norm_max.reshape(-1).astype(np.float32)
@@ -103,6 +111,21 @@ class Bebop2WaypointEnv(VecEnv):
 
         self.reset()
 
+    def _sample_bc_baseline_states(self, num_samples: int) -> np.ndarray:
+        """Sample the same target-relative state ranges used by BC evaluation."""
+        states = np.zeros((num_samples, 19), dtype=np.float64)
+        states[:, 0:2] = self.rng.choice([-1.0, 1.0], size=(num_samples, 2)) * self.rng.uniform(
+            1.0, 5.0, size=(num_samples, 2)
+        )
+        states[:, 2] = self.rng.uniform(-1.0, 1.0, size=num_samples)
+        states[:, 3:6] = self.rng.uniform(-0.5, 0.5, size=(num_samples, 3))
+        states[:, 6:8] = self.rng.uniform(-2.0 * np.pi / 9.0, 2.0 * np.pi / 9.0, size=(num_samples, 2))
+        states[:, 8] = self.rng.uniform(-np.pi, np.pi, size=num_samples)
+        states[:, 9:12] = self.rng.uniform(-1.0, 1.0, size=(num_samples, 3))
+        states[:, 12:15] = self._sample_external_moments(num_samples)
+        states[:, 15:19] = quadrotor_sim_matlab.INFO.omega_mid
+        return states
+
     def _normalize_states(self, states: np.ndarray) -> np.ndarray:
         denom = self.obs_max - self.obs_min + 1e-10
         return ((states - self.obs_min) / denom).astype(np.float32)
@@ -129,7 +152,7 @@ class Bebop2WaypointEnv(VecEnv):
     def _sample_external_moments(self, num_samples: int) -> np.ndarray:
         if not self.randomize_external_moments:
             return np.zeros((num_samples, 3), dtype=np.float64)
-        return np.random.uniform(
+        return self.rng.uniform(
             low=self.obs_min[12:15],
             high=self.obs_max[12:15],
             size=(num_samples, 3),
@@ -159,6 +182,14 @@ class Bebop2WaypointEnv(VecEnv):
     def reset_(self, dones: np.ndarray) -> np.ndarray:
         num_reset = int(dones.sum())
         if num_reset == 0:
+            return self._observations()
+
+        if self.point_to_point:
+            self.target_waypoints[dones] = 0
+            self.states[dones] = self._sample_bc_baseline_states(num_reset).astype(np.float32)
+            self.step_counts[dones] = 0
+            self.prev_derivs = [None if done else deriv for done, deriv in zip(dones, self.prev_derivs, strict=True)]
+            self._reset_episode_metrics(dones)
             return self._observations()
 
         if self.initialize_at_random_waypoints:
@@ -242,8 +273,8 @@ class Bebop2WaypointEnv(VecEnv):
         # Waypoint reward + dist penalty
         in_hover_region = (
             (d2w_new < self.waypoint_radius) &
-            (angle_penalty < 0.3) &
-            (speed < 0.25)
+            (angle_penalty < self.success_attitude) &
+            (speed < self.success_speed)
         )
         # rewards[waypoint_reached] = 1.0 # CHANGED HERE, WAS COMMENTED BEFORE SO WATCH OUT ----------
         rewards[in_hover_region] = 1.0 # CHANGED HERE, WAS COMMENTED BEFORE SO WATCH OUT ----------
@@ -272,14 +303,15 @@ class Bebop2WaypointEnv(VecEnv):
         ground_collision = new_abs[:, 2] > 0.0
         out_of_bounds = np.any(np.abs(new_abs[:, 0:2]) > 6.0, axis=1)
         out_of_bounds |= new_abs[:, 2] < -7.0
+        attitude_crash = np.any(np.abs(new_states[:, 6:8]) > np.pi / 2.0, axis=1)
         out_of_bounds |= np.any(np.abs(new_states[:, 9:12]) > 1000.0, axis=1)
         max_steps_reached = self.step_counts >= self.max_steps
 
         rewards[ground_collision] = -10.0
-        rewards[out_of_bounds] = -10.0
-        dones = ground_collision | out_of_bounds | max_steps_reached
+        rewards[out_of_bounds | attitude_crash] = -10.0
+        dones = ground_collision | out_of_bounds | attitude_crash | max_steps_reached
         if self.terminate_on_waypoint:
-            dones |= waypoint_reached
+            dones |= in_hover_region
 
         infos = [{} for _ in range(self.num_envs)]
         for idx in range(self.num_envs):
@@ -302,8 +334,10 @@ class Bebop2WaypointEnv(VecEnv):
             else:
                 infos[idx]["TimeLimit.truncated"] = False
             infos[idx]["ground_collision"] = bool(ground_collision[idx])
+            infos[idx]["attitude_crash"] = bool(attitude_crash[idx])
             infos[idx]["out_of_bounds"] = bool(out_of_bounds[idx])
             infos[idx]["waypoint_reached"] = bool(waypoint_reached[idx])
+            infos[idx]["is_success"] = bool(in_hover_region[idx])
             infos[idx]["target_waypoint"] = int(self.target_waypoints[idx])
             infos[idx]["distance_to_waypoint"] = float(d2w_new[idx])
             infos[idx]["rewards"] = float(rewards[idx])
@@ -318,6 +352,7 @@ class Bebop2WaypointEnv(VecEnv):
 
     def seed(self, seed=None):
         self._seed_value = seed
+        self.rng = np.random.default_rng(seed)
         if seed is not None:
             np.random.seed(seed)
             random.seed(seed)

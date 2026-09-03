@@ -319,3 +319,39 @@ def transform_to_sequence(data, seq_len=100):
     # layout is (samples, features, window_count, seq_len), matching the legacy
     # convention used by the convolutional controllers.
     return sliding_window_view(data, window_shape=seq_len, axis=2)
+
+
+def align_state_action_targets(inputs, outputs, target_alignment="action_t"):
+    """Align state windows with same-step or next-step motor commands.
+
+    Alignment is performed independently inside every trajectory.  For
+    ``action_t+1`` the final input and the first target of each trajectory are
+    discarded, so no sample can cross an episode boundary.  The function
+    accepts raw inputs shaped ``(trajectory, feature, time)`` and sequenced
+    inputs shaped ``(trajectory, feature, window, history)``.
+    """
+    if target_alignment not in {"action_t", "action_t+1"}:
+        raise ValueError(
+            "dataset.target_alignment must be 'action_t' or 'action_t+1', "
+            f"got {target_alignment!r}."
+        )
+    if inputs.ndim not in {3, 4} or outputs.ndim != 3:
+        raise ValueError(
+            "Expected inputs with rank 3 or 4 and outputs with rank 3, "
+            f"got {inputs.shape} and {outputs.shape}."
+        )
+
+    input_time_axis = 2
+    if inputs.shape[input_time_axis] != outputs.shape[2]:
+        raise ValueError(
+            "Inputs and outputs must have equal aligned lengths before target "
+            f"shifting, got {inputs.shape[input_time_axis]} and {outputs.shape[2]}."
+        )
+    if target_alignment == "action_t":
+        return inputs, outputs
+    if inputs.shape[input_time_axis] < 2:
+        raise ValueError("action_t+1 alignment requires at least two timesteps per trajectory.")
+
+    # Keep the trajectory dimension intact: [state_0..state_T-2] is paired
+    # with [action_1..action_T-1] separately for every trajectory.
+    return inputs[:, :, :-1, ...], outputs[:, :, 1:]
