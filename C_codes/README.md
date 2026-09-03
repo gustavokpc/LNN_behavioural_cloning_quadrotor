@@ -1,52 +1,51 @@
-# C Controller Exports
+# Controladores exportados para C
 
-Each subfolder contains a C export for one checkpoint:
-
-```text
-MLP
-LTC
-RNN
-CONV_CFC_DEFAULT
-CFC
-CFC_PURE
-CTRNN
-GRU
-LSTM
-NCP_CFC
-```
-
-Common files inside each folder:
+Os exports estão separados por veículo:
 
 ```text
-nn_parameters.h/.c   exported weights, biases, normalization limits
-nn_operations.h/.c   inference implementation
-run_controller.c     command-line runner that receives the input vector
-test_controller.c    fixed-input C smoke test
-compare_python_c.py  PyTorch-vs-C numerical comparison
-README.md            model-specific notes
+C_codes/bebop1/
+C_codes/bebop2/
 ```
 
-For recurrent/liquid models, `nn_control` keeps hidden state in static storage. Call `nn_reset()` before starting a new trajectory or whenever the controller state should be cleared.
+Cada pasta de modelo normalmente contém:
 
-Run a comparison from the repository root:
-
-```sh
-.venv/bin/python LNN_behavioural_cloning_quadrotor/C_codes/GRU/compare_python_c.py
+```text
+nn_parameters.h/.c   pesos, biases e limites de normalização
+nn_operations.h/.c   implementação da inferência
+run_controller.c     executável que recebe o vetor de entrada
+test_controller.c    teste simples com entrada fixa
+compare_python_c.py  comparação numérica entre PyTorch e C
 ```
 
-The generated comparisons were checked against PyTorch with max absolute error below `6e-7` for the included test input.
+Modelos recorrentes mantêm o estado interno entre chamadas. Use `nn_reset()` no início de cada voo ou quando a memória do controlador precisar ser reiniciada.
 
-C-backed simulators live in `simulators/`:
+## Comparar PyTorch e C
 
-```sh
-python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_random_start_C
-python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_start_dataset_C
-python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_race_drone_C
+Exemplo para o CfC do Bebop1:
+
+```bash
+.venv/bin/python \
+  LNN_behavioural_cloning_quadrotor/C_codes/bebop1/CFC/compare_python_c.py
 ```
 
-By default they select the C export from `simulator_config.yaml -> model_path`. To force a specific C export folder:
+## Teste C simples
 
-```sh
-python -m LNN_behavioural_cloning_quadrotor.simulators.Simulator_random_start_C \
-  --c-model-dir LNN_behavioural_cloning_quadrotor/C_codes/GRU
+```bash
+cd LNN_behavioural_cloning_quadrotor/C_codes/bebop1/CFC
+gcc -std=c99 -Wall -Wextra \
+  test_controller.c nn_operations.c nn_parameters.c \
+  -lm -o test_controller
+./test_controller
 ```
+
+## Simular um export
+
+```bash
+.venv/bin/python -m \
+  LNN_behavioural_cloning_quadrotor.simulators.Simulator_gazebo_square_C \
+  --c-model-dir LNN_behavioural_cloning_quadrotor/C_codes/bebop1/CFC \
+  --plot-actions \
+  --plot-signals
+```
+
+Os plots do simulador C são gravados em `organized_plots/sl_runs/generated/c_controller/`.

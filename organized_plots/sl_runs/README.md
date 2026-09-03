@@ -1,25 +1,26 @@
-# Simulator Run Images
+# Resultados SL selecionados
 
-Image names use this pattern when possible:
+Esta pasta reúne todos os resultados de aprendizado supervisionado. Os experimentos organizados mais recentes estão em `experiments/`, e novas simulações são gravadas em `generated/`.
+
+Quando possível, os nomes seguem o padrão:
 
 `model__track__dyn-<dynamics>__tau-<seconds>__dist-<value>__noise-<type>__signals-<scope>.png`
 
-Common fields:
+Campos principais:
 
-- `model`: controller or training family, for example `cfc`, `bbp2_conv_cfc`, `correctnorm_bbp2_newnorm`.
-- `track`: trajectory type, usually `square`.
-- `dyn`: plant dynamics used in the simulation, for example `original` or `matlab`.
-- `tau`: motor time constant used in seconds.
-- `dist`: disturbance value used in the run.
-- `noise`: noise condition, for example `none` or `pqr`.
-- `signals`: plot scope, usually `all`.
+- `model`: controlador ou família de treino.
+- `track`: trajetória, normalmente `square`.
+- `dyn`: dinâmica usada, por exemplo `original` ou `matlab`.
+- `tau`: constante de tempo dos motores em segundos.
+- `noise`: condição de ruído.
+- `signals`: grupo de sinais exibido.
 
-Folders:
+Grupos mais usados:
 
-- `cfc/original`: normal CFC with original dynamics.
-- `cfc/matlab`: normal CFC with Matlab/Bebop2-style dynamics.
-- `bbp2_conv_cfc`: Bebop2 Conv-CfC experiments.
-- `bbp2_correctnorm`: CorrectNorm Bebop2 experiments.
-- `bbp2_newdataset`: models trained/evaluated with newer Bebop2 datasets or normalization variants.
-- `noise_models`: models trained with noisy datasets or no-dt variants.
-- `metrics`: aggregate metric plots.
+- `cfc/`: CfC com as dinâmicas original e MATLAB.
+- `bbp2_conv_cfc/`: experimentos Conv-CfC do Bebop2.
+- `bbp2_tau_models/`: variações da constante de tempo dos motores.
+- `noise_models/`: modelos treinados com ruído e variações sem `dt`.
+- `metrics/`: métricas agregadas.
+
+Veja também o [índice completo](index.html).

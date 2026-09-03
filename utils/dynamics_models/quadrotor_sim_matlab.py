@@ -23,6 +23,8 @@ OMEGA_MAX = 10000.0
 OMEGA_MIN = 5000.0
 DEFAULT_TAU = 0.06
 TAU = DEFAULT_TAU
+DEFAULT_ROTOR_YAW_SIGN = 1.0
+ROTOR_YAW_SIGN = DEFAULT_ROTOR_YAW_SIGN
 
 RHO = 1.225
 R = 0.075
@@ -149,6 +151,15 @@ def set_motor_tau(tau: float) -> None:
         raise ValueError(f"Motor tau must be positive, got {tau}.")
     TAU = tau
     INFO = replace(INFO, tau=tau)
+
+
+def set_rotor_yaw_sign(sign: float) -> None:
+    """Set the rotor reaction-torque sign used by subsequent integrations."""
+    global ROTOR_YAW_SIGN
+    sign = float(sign)
+    if sign not in (-1.0, 1.0):
+        raise ValueError(f"Rotor yaw sign must be -1 or +1, got {sign}.")
+    ROTOR_YAW_SIGN = sign
 
 
 def _safe_sign(value: float) -> float:
@@ -288,6 +299,7 @@ def dynamics(state: np.ndarray, action: np.ndarray) -> np.ndarray:
         vel=np.asarray([vx, vy, vz], dtype=np.float64),
         rates=np.asarray([p, q, r], dtype=np.float64),
         omega_rpm=np.asarray([omega1, omega2, omega3, omega4], dtype=np.float64),
+        rotor_yaw_sign=ROTOR_YAW_SIGN,
     )
     moment_body = moment_body + np.asarray([mx_ext, my_ext, mz_ext], dtype=np.float64)
 

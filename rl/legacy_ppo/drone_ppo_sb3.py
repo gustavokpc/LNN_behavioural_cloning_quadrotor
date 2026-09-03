@@ -27,6 +27,7 @@ from .quadcopter_hover_envs import Quadcopter3DHover # type: ignore
 
 
 LEGACY_RL_ROOT = Path(__file__).resolve().parents[1]
+LEGACY_RL_OUTPUT_ROOT = LEGACY_RL_ROOT.parent / "organized_plots" / "rl_runs"
 
 
 # ---------------------------------------------------------------------------
@@ -339,6 +340,9 @@ class RecurrentActorCriticCfCPolicy(LogStdClampMixin, RecurrentActorCriticPolicy
         max_log_std: float | None = 1.0,
         **kwargs,
     ):
+        # Older CfC checkpoints serialized this now-unused policy kwarg.
+        # Accept it so those checkpoints remain loadable.
+        del ncp_kwargs
         self._cfc_lr_schedule = lr_schedule
         self._cfc_kwargs = cfc_kwargs or {}
         self._ncp_kwargs = ncp_kwargs
@@ -932,7 +936,11 @@ def parse_args():
     parser.add_argument("--vf-coeff", type=float, default=0.5)
     parser.add_argument("--total-timesteps", type=int, default=500_000_000)
     parser.add_argument("--checkpoint-freq", type=int, default=500_000)
-    parser.add_argument("--tensorboard-log", type=str, default=str(LEGACY_RL_ROOT / "runs" / "legacy_ppo"))
+    parser.add_argument(
+        "--tensorboard-log",
+        type=str,
+        default=str(LEGACY_RL_OUTPUT_ROOT / "tensorboard" / "legacy_ppo"),
+    )
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--n-epochs", type=int, default=10)
     parser.add_argument("--cfc-timespan", type=float, default=0.01)

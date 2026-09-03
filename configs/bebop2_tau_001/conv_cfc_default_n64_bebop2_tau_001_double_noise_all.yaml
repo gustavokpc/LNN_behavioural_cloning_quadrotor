@@ -1,0 +1,87 @@
+training:
+  max_epochs: 20
+  lr: 0.001
+  logger: false
+  seed: 42
+  wandb_project: Autonomous-Quadrotor-Training
+dataset:
+  input_labels:
+  - dx
+  - dy
+  - dz
+  - vx
+  - vy
+  - vz
+  - phi
+  - theta
+  - psi
+  - p
+  - q
+  - r
+  - Mx_ext
+  - My_ext
+  - Mz_ext
+  - omega
+  output_labels:
+  - u
+  train_path: ../Simulation/datasets/hover_dataset_train_bebop2_tau_001.npz
+  val_path: ../Simulation/datasets/hover_dataset_val_bebop2_tau_001.npz
+  bebop_model: bebop2
+  normalized: true
+  with_noise: true
+  with_bias: false
+  with_delay: true
+  delay_steps: 1
+  input_dim: 19
+  input_size: 19
+  output_dim: 4
+  output_size: 4
+train_ablation:
+  enabled: false
+  remove_feature_groups: []
+  remove_features: []
+  applied_groups: []
+  applied_features: []
+  removed_expanded_features: []
+  name_tags: []
+mlp_block:
+  value: false
+  no_layers:
+  - 64
+  - 128
+  - 128
+  - 256
+conv_block:
+  value: true
+  output_dim: 256
+sequencing:
+  value: true
+  seq_len: 1
+dataloader:
+  batch_size: 32
+  num_workers: 8
+  pin_memory: false
+  drop_last: true
+model:
+  type: cfc
+  no_neurons_layer: 64
+  ode_unfolds: 6
+  cfc_mode: default
+  ncp:
+    inter_neurons: 32
+    command_neurons: 24
+    sensory_fanout: 20
+    inter_fanout: 16
+    recurrent_command_synapses: 16
+    motor_fanin: 20
+  backbone_units: 128
+  backbone_layers: 1
+  backbone_dropout: 0.0
+  activation: lecun_tanh
+  mixed_memory: false
+  scale_factor: 1.0
+  hidden_layers:
+  - 120
+  - 120
+  - 120
+checkpoint_name: null

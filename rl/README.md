@@ -1,80 +1,62 @@
-# RL Workspace
+# Reinforcement Learning
 
-This folder is reserved for PPO/SB3 experiments that fine-tune or wrap the trained CfC controller on the Bebop2 MATLAB dynamics.
+Treino e avaliação de controladores PPO para o Bebop2 usando as dinâmicas do projeto.
 
-## Imported Legacy PPO Code
+Execute os comandos a partir de `LNN_estag`:
 
-The previous PPO/SB3 training code has been imported under [legacy_ppo](legacy_ppo). The goal of this first step is to keep it as close as possible to the original version while making it importable from this repository.
+```bash
+cd /home/gustavokpc/Documents/ESTAG/LNN_estag
+```
 
-Imported files:
+## Políticas disponíveis
 
-- [legacy_ppo/drone_ppo_sb3.py](legacy_ppo/drone_ppo_sb3.py): original PPO/RecurrentPPO training script, custom CfC policy, callbacks, rendering, and CLI.
-- [legacy_ppo/quadcopter_envs.py](legacy_ppo/quadcopter_envs.py): original vectorized gates environment and 8-shaped gate trajectory.
-- [legacy_ppo/quadcopter_hover_envs.py](legacy_ppo/quadcopter_hover_envs.py): original hover environment dependency.
-- [legacy_ppo/quadcopter_animation](legacy_ppo/quadcopter_animation): original OpenCV renderer used by `--render`.
+| Política | Uso |
+| --- | --- |
+| `ppo` | PPO com política MLP. |
+| `recurrent_ppo` | Recurrent PPO com célula CfC. |
+| `recurrent_ppo_ltc` | Recurrent PPO com célula LTC. |
+| `bc_ppo` | Inicializa o ator PPO a partir de um checkpoint SL. |
+| `residual_ppo` | Mantém o controlador SL congelado e aprende uma correção PPO. |
 
-Minimal changes made during import:
+Tracks disponíveis:
 
-- Imports were changed to relative package imports, for example `.quadcopter_envs`.
-- Checkpoints now save under `rl/checkpoints/legacy_ppo/`.
-- TensorBoard logs now default to `rl/runs/legacy_ppo/`.
+- `square_waypoints`: trajetória quadrada; aceita todas as políticas.
+- `figure8_gates`: pista em oito; use `ppo`, `recurrent_ppo` ou `recurrent_ppo_ltc`.
 
-The legacy environment still uses its original observation vector and its original action space:
+## Treino rápido
+
+Recurrent PPO/CfC na pista em oito:
+
+```bash
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
+  --track figure8_gates \
+  --policy-type recurrent_ppo \
+  --num-envs 16 \
+  --rollout-fragment-length 512 \
+  --batch-size 1024 \
+  --total-timesteps 100000000 \
+  --checkpoint-freq 100000 \
+  --dt 0.01 \
+  --motor-tau 0.025 \
+  --rotor-yaw-sign +1 \
+  --device auto
+```
+
+Para treinar a versão LTC, troque somente a política:
 
 ```text
-action_space = Box(low=-1, high=u_lim, shape=(4,))
+--policy-type recurrent_ppo_ltc
 ```
 
-That `[-1, 1]` range is not forced by PPO itself. It comes from the Gym/SB3 environment definition. PPO samples actions according to the environment's `action_space`; here the old environment deliberately normalized motor commands to `[-1, 1]`, then converted them internally to motor commands/speeds.
+Because `figure8_gates` uses the legacy-style observation vector instead of the 19-value supervised-learning input, use `--policy-type ppo`, `--policy-type recurrent_ppo`, `--policy-type recurrent_ppo_ltc`, or `--policy-type recurrent_ppo_ncp_cfc`. The `bc_ppo` and `residual_ppo` modes remain available for the waypoint environment, but are intentionally rejected for `figure8_gates`.
 
-To run the legacy trainer from the parent folder `LNN_estag` after installing the RL dependencies:
-
-```bash
-.venv/bin/python -m pip install -r LNN_behavioural_cloning_quadrotor/rl/legacy_ppo/requirements.txt
-```
-
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.legacy_ppo.drone_ppo_sb3 \
-  --policy-type recurrent_ppo \
-  --num-envs 100 \
-  --total-timesteps 500000
-```
-
-For a very small smoke run:
-
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.legacy_ppo.drone_ppo_sb3 \
-  --policy-type ppo \
-  --num-envs 2 \
-  --rollout-fragment-length 32 \
-  --batch-size 64 \
-  --total-timesteps 128 \
-  --checkpoint-freq 128
-```
-
-This imported legacy code is not yet the final Bebop2 square-training environment. The next adaptation step is to replace the old 8-shaped gate definition and old symbolic dynamics with this repository's `quadrotor_sim_matlab` Bebop2 dynamics and square waypoints.
-
-## Bebop2 Waypoint Environment
-
-The first new environment is [envs/bebop2_waypoints_env.py](envs/bebop2_waypoints_env.py). It is separate from `legacy_ppo/` so the old implementation remains available as a reference.
-
-Current contract:
-
-- Observation space: 19 values, matching the supervised-learning state interface:
-  `dx, dy, dz, vx, vy, vz, phi, theta, psi, p, q, r, Mx_ext, My_ext, Mz_ext, omega1, omega2, omega3, omega4`.
-- Action space: 4 motor commands normalized in `[0, 1]`, matching the supervised-learning output convention.
-- Dynamics: `utils.dynamics_models.quadrotor_sim_matlab`.
-- Targets: points in space, not physical gates.
-- Default square points: `(2.0, 1.5, -1.5)`, `(2.0, -1.5, -1.5)`, `(-2.0, -1.5, -1.5)`, `(-2.0, 1.5, -1.5)`.
-- Waypoint switching: distance threshold, not gate-plane crossing.
-
-This environment is the intended base for the new PPO/SB3 training path.
-
-The matching PPO/SB3 entrypoint is [drone_ppo_bebop2.py](drone_ppo_bebop2.py). It uses `Bebop2WaypointEnv`, not the legacy `Quadcopter3DGates` environment.
-
-All defaults for the new RL trainer live directly in `parse_args()` inside [drone_ppo_bebop2.py](drone_ppo_bebop2.py). There is no YAML config for this path right now.
-
-Full hot-start training command with the current defaults written explicitly:
+The `recurrent_ppo_ncp_cfc` policy uses a sparsely wired CfC. Its wiring can be
+configured with `--ncp-inter-neurons`, `--ncp-command-neurons`,
+`--ncp-sensory-fanout`, `--ncp-inter-fanout`,
+`--ncp-recurrent-command-synapses`, and `--ncp-motor-fanin`. Their defaults are
+32, 24, 20, 16, 16, and 20 respectively; `--cell-size` sets the number of NCP
+motor/output neurons. `--ncp-scale-factor` scales the six wiring parameters and
+defaults to 1.0.
 
 ```bash
 .venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
@@ -86,80 +68,80 @@ Full hot-start training command with the current defaults written explicitly:
   --learning-rate 0.0003 \
   --rollout-fragment-length 512 \
   --batch-size 1024 \
-  --gamma 0.999 \
-  --lam 0.95 \
-  --clip-param 0.2 \
-  --entropy-coeff 0.01 \
-  --vf-coeff 0.5 \
-  --n-epochs 10 \
-  --total-timesteps 1000000 \
+  --total-timesteps 100000000 \
   --checkpoint-freq 100000 \
   --dt 0.01 \
-  --max-steps 6000 \
-  --dist-error 0.2 \
-  --integration-method rk4 \
-  --implicit-iters 1 \
   --device auto
 ```
 
-Because those values are defaults, the short equivalent is:
+Smoke test curto:
 
 ```bash
 .venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
-  --policy-type bc_ppo
-```
-
-Small smoke run:
-
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
+  --track figure8_gates \
   --policy-type ppo \
   --num-envs 2 \
-  --rollout-fragment-length 32 \
-  --batch-size 64 \
-  --total-timesteps 128 \
-  --checkpoint-freq 128
+  --rollout-fragment-length 8 \
+  --batch-size 16 \
+  --total-timesteps 16 \
+  --checkpoint-freq 16 \
+  --max-steps 20 \
+  --device cpu
 ```
 
-Longer recurrent CfC-policy run:
+## Avaliação recente: Recurrent PPO/CfC
+
+Exemplo com o checkpoint de 96 milhões de passos, `tau = 0.025 s` e sem ruído nas observações:
 
 ```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
+CUDA_VISIBLE_DEVICES="" .venv/bin/python -m \
+  LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
+  --track figure8_gates \
   --policy-type recurrent_ppo \
-  --num-envs 32 \
-  --total-timesteps 1000000
+  --cont LNN_behavioural_cloning_quadrotor/rl/checkpoints/CFC/cfc_tau_0025/recurrent_ppo_figure8_gates_cfc_tau_0025_noise_96000000_steps.zip \
+  --render \
+  --dt 0.01 \
+  --motor-tau 0.025 \
+  --rotor-yaw-sign +1 \
+  --obs-rate-noise-std 0.0 0.0 0.0 \
+  --figure8-action-range 0_1 \
+  --figure8-start-pos-enu 0.0 0.0 1.0 \
+  --figure8-start-gate 2 \
+  --plot-actions \
+  --plot-signals \
+  --device cpu
 ```
 
-Hot-start PPO from the supervised CfC checkpoint:
-
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
-  --policy-type bc_ppo \
-  --num-envs 32 \
-  --total-timesteps 1000000
-```
-
-This loads the supervised-learning checkpoint as the PPO actor initialization, trains a copy of those parameters, and saves a new SB3 `.zip` under `rl/checkpoints/bebop2_waypoints/bc_ppo/`. It does not modify the original SL `.ckpt`.
-
-Residual PPO around the supervised CfC checkpoint:
-
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
-  --policy-type residual_ppo \
-  --residual-scale 0.05 \
-  --num-envs 32 \
-  --total-timesteps 1000000
-```
-
-In `residual_ppo`, the supervised CfC is loaded as a frozen base controller. PPO does not overwrite the CfC parameters. Instead, PPO outputs a residual action in `[-1, 1]`, and the environment applies:
+Teste com mudança de dinâmica e ruído, mantendo o mesmo checkpoint:
 
 ```text
-final_motor_command = clip(cfc_motor_command + residual_scale * ppo_residual, 0, 1)
+--motor-tau 0.03
+--obs-rate-noise-std 0.24 0.12 0.10
 ```
 
-The resulting SB3 policy is saved under `rl/checkpoints/bebop2_waypoints/residual_ppo/`. To make the correction more conservative, reduce `--residual-scale`, for example `0.02`. To let PPO correct more aggressively, increase it, for example `0.10`.
+## Avaliação recente: Recurrent PPO/LTC
 
-The default supervised checkpoint/config used by `bc_ppo` are:
+```bash
+CUDA_VISIBLE_DEVICES="" .venv/bin/python -m \
+  LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
+  --track figure8_gates \
+  --policy-type recurrent_ppo_ltc \
+  --cont LNN_behavioural_cloning_quadrotor/rl/checkpoints/LTC/recurrent_ppo_ltc/recurrent_ppo_ltc_figure8_gates_96000000_steps.zip \
+  --render \
+  --dt 0.01 \
+  --motor-tau 0.06 \
+  --rotor-yaw-sign +1 \
+  --figure8-action-range 0_1 \
+  --figure8-start-pos-enu 0.0 0.0 1.0 \
+  --figure8-start-gate 2 \
+  --plot-actions \
+  --plot-signals \
+  --device cpu
+```
+
+## Gravar vídeo
+
+Adicione ao comando de avaliação:
 
 ```text
 --bc-config LNN_behavioural_cloning_quadrotor/configs/bebop1_conv_cfc_h=64_seq=1_epoch=18_val_loss=0.000142.yaml
@@ -175,95 +157,51 @@ Visualize a trained checkpoint:
   --policy-type ppo
 ```
 
-Visualize several attempts one after another in the same viewer. Use `J`/`L` to switch attempts:
+O vídeo, os plots e os CSVs são gravados automaticamente em:
 
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
-  --render \
-  --render-episodes 5 \
-  --cont LNN_behavioural_cloning_quadrotor/rl/checkpoints/bebop2_waypoints/ppo/ppo_bebop2_waypoints.zip \
-  --policy-type ppo
+```text
+organized_plots/rl_runs/videos/<track>/
+organized_plots/rl_runs/action_plots/<track>/<policy>/
+organized_plots/rl_runs/signal_plots/<track>/<policy>/
 ```
 
-Visualize several attempts at the same time:
+Use `--output`, `--action-plot-output` ou `--signals-plot-output` somente quando quiser escolher outro nome.
+
+## Hot-start a partir de SL
+
+PPO inicializado com o controlador supervisionado:
 
 ```bash
 .venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
-  --render \
-  --render-episodes 5 \
-  --simultaneous \
-  --cont LNN_behavioural_cloning_quadrotor/rl/checkpoints/bebop2_waypoints/ppo/ppo_bebop2_waypoints.zip \
-  --policy-type ppo
-```
-
-Record the rollout instead of only opening the interactive viewer:
-
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
-  --render \
-  --record \
-  --cont LNN_behavioural_cloning_quadrotor/rl/checkpoints/bebop2_waypoints/ppo/ppo_bebop2_waypoints.zip \
-  --policy-type ppo \
-  --output /tmp/bebop2_ppo_rollout.mp4
-```
-
-## Bebop2 Figure-8 Gates Environment
-
-The same trainer also has a legacy-style figure-8 gates mode:
-
-```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
-  --track figure8_gates \
-  --policy-type recurrent_ppo \
+  --track square_waypoints \
+  --policy-type bc_ppo \
   --num-envs 32 \
-  --total-timesteps 1000000
+  --learning-rate 1e-5 \
+  --total-timesteps 5000000
 ```
 
-This mode uses [envs/bebop2_figure8_gates_env.py](envs/bebop2_figure8_gates_env.py), which keeps the legacy gate task layout while replacing the old symbolic dynamics with `quadrotor_sim_matlab`:
-
-- figure-8 `gate_pos` and `gate_yaw` from the legacy PPO environment;
-- observation layout matching the legacy gate input: 16-state relative-to-gate core plus future gate features/history options;
-- configurable policy action range with `--figure8-action-range`;
-- default action space in the Bebop2/SL `[0, 1]` motor-command convention;
-- optional `neg1_1` action space for old figure-8 checkpoints trained with the legacy `[-1, 1]` convention;
-- Bebop2 19-state integration through `integrate_state(...)` after selecting `quadrotor_sim_matlab`;
-- gate-plane pass/collision logic, ground collision, out-of-bounds checks, and rollout metrics.
-
-Because `figure8_gates` uses the legacy-style observation vector instead of the 19-value supervised-learning input, use `--policy-type ppo`, `--policy-type recurrent_ppo`, `--policy-type recurrent_ppo_ltc`, or `--policy-type recurrent_ppo_ncp_cfc`. The `bc_ppo` and `residual_ppo` modes remain available for the waypoint environment, but are intentionally rejected for `figure8_gates`.
-
-The `recurrent_ppo_ncp_cfc` policy uses a sparsely wired CfC. Its wiring can be
-configured with `--ncp-inter-neurons`, `--ncp-command-neurons`,
-`--ncp-sensory-fanout`, `--ncp-inter-fanout`,
-`--ncp-recurrent-command-synapses`, and `--ncp-motor-fanin`. Their defaults are
-32, 24, 20, 16, 16, and 20 respectively; `--cell-size` sets the number of NCP
-motor/output neurons. `--ncp-scale-factor` scales the six wiring parameters and
-defaults to 1.0.
-
-Small smoke run:
+PPO residual em torno do controlador supervisionado congelado:
 
 ```bash
 .venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
-  --track figure8_gates \
-  --policy-type ppo \
-  --num-envs 2 \
-  --rollout-fragment-length 8 \
-  --batch-size 16 \
-  --total-timesteps 16 \
-  --checkpoint-freq 16 \
-  --max-steps 20 \
-  --device cpu
+  --track square_waypoints \
+  --policy-type residual_ppo \
+  --residual-scale 0.05 \
+  --learning-rate 5e-5 \
+  --num-envs 32 \
+  --total-timesteps 2000000
 ```
 
-Checkpoints are saved under `rl/checkpoints/figure8_gates/<policy-type>/`, and TensorBoard logs default to `rl/runs/figure8_gates/`.
+## Saídas
 
-Render a trained figure-8 checkpoint with the legacy gate viewer:
+- Checkpoints: `rl/checkpoints/`.
+- TensorBoard: `organized_plots/rl_runs/tensorboard/`.
+- Plots e vídeos: `organized_plots/rl_runs/`.
+
+Ajuda completa:
 
 ```bash
-.venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 \
-  --track figure8_gates \
-  --render \
-  --cont LNN_behavioural_cloning_quadrotor/rl/checkpoints/figure8_gates/recurrent_ppo/recurrent_ppo_figure8_gates.zip \
-  --policy-type recurrent_ppo
+.venv/bin/python -m LNN_behavioural_cloning_quadrotor.rl.drone_ppo_bebop2 --help
 ```
 
 ### Trainer Options

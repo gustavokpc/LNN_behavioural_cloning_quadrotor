@@ -122,7 +122,7 @@ def _plot(rows: list[dict[str, float | int]], path: Path) -> None:
 
 def parse_args(cli_args: Iterable[str] | None = None) -> argparse.Namespace:
     project_root = Path(__file__).resolve().parents[1]
-    runs_dir = Path(__file__).resolve().parent / "runs"
+    runs_dir = project_root / "organized_plots" / "sl_runs" / "comparisons"
     parser = argparse.ArgumentParser(description="Compare square-rollout RPM variation across tau values.")
     parser.add_argument("--project-root", type=Path, default=project_root)
     parser.add_argument("--model", default="CFC")
