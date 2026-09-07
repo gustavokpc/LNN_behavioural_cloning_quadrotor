@@ -340,9 +340,8 @@ class RecurrentActorCriticCfCPolicy(LogStdClampMixin, RecurrentActorCriticPolicy
         max_log_std: float | None = 1.0,
         **kwargs,
     ):
-        # Older CfC checkpoints serialized this now-unused policy kwarg.
-        # Accept it so those checkpoints remain loadable.
-        del ncp_kwargs
+        # Keep this optional for ordinary CfC/LTC and older checkpoints; wired
+        # NCP policies use it when constructing their recurrent cell.
         self._cfc_lr_schedule = lr_schedule
         self._cfc_kwargs = cfc_kwargs or {}
         self._ncp_kwargs = ncp_kwargs

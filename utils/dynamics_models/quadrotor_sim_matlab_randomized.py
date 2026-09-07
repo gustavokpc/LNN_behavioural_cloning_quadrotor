@@ -390,6 +390,7 @@ def dynamics(
     state: np.ndarray,
     action: np.ndarray,
     parameters: DynamicsParameters | None = None,
+    rotor_yaw_sign: float = 1.0,
 ) -> np.ndarray:
     """Compute state derivatives using fixed or sampled vehicle parameters."""
     params = DEFAULT_PARAMETERS if parameters is None else parameters
@@ -413,6 +414,7 @@ def dynamics(
         vel=np.asarray([vx, vy, vz], dtype=np.float64),
         rates=np.asarray([p, q, r], dtype=np.float64),
         omega_rpm=np.asarray([omega1, omega2, omega3, omega4], dtype=np.float64),
+        rotor_yaw_sign=rotor_yaw_sign,
         parameters=params,
     )
     moment_body = moment_body + np.asarray([mx_ext, my_ext, mz_ext], dtype=np.float64)

@@ -194,7 +194,7 @@ def _environment_metadata(args) -> dict[str, Any]:
         "gate_size", "gates_ahead", "figure8_action_range", "figure8_start_gate",
         "no_vel", "no_ang_vel", "low_obs", "normalize_observations", "num_state_history", "num_action_history",
         "history_step_size", "param_input", "param_input_noise", "obs_rate_noise_std",
-        "motor_tau", "tau", "randomize_dynamics", "randomization_factor",
+        "motor_tau", "tau", "rotor_yaw_sign", "randomize_dynamics", "randomization_factor",
         "randomize_aerodynamic_coefficients", "randomize_external_moments",
     )
     return {name: getattr(args, name) for name in names if hasattr(args, name)}

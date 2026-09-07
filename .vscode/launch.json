@@ -18,9 +18,10 @@
         "--entropy-coeff=0.02",
         "--n-epochs=6",
         "--max-steps=600",
-        "--policy-type=recurrent_ppo",
+        "--policy-type=cfc",
         "--track=figure8_gates",
-        "--figure8-action-range=0_1"
+        "--figure8-action-range=0_1",
+        "--no-cfc-use-dt"
       ],
       "console": "integratedTerminal",
       "justMyCode": false,

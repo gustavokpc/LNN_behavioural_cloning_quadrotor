@@ -68,6 +68,7 @@ class Bebop2Figure8GatesEnv(VecEnv):
         param_input: bool = False,
         param_input_noise: float = 0.0,
         motor_tau: float = quadrotor_sim_matlab_randomized.DEFAULT_TAU,
+        rotor_yaw_sign: float = 1.0,
         obs_rate_noise_std: np.ndarray | Sequence[float] | None = None,
         invert_yaw_observation: bool = False,
         low_obs: bool = False,
@@ -82,7 +83,7 @@ class Bebop2Figure8GatesEnv(VecEnv):
         tau: float = 0.06,
         randomize_dynamics: bool = False,
         randomization_factor: float = 0.30,
-        randomize_aerodynamic_coefficients: bool = True,
+        randomize_aerodynamic_coefficients: bool = False,
         seed: int | None = None,
     ):
         self.seed(seed)
@@ -120,6 +121,9 @@ class Bebop2Figure8GatesEnv(VecEnv):
         self.motor_tau = float(motor_tau)
         if self.motor_tau <= 0.0:
             raise ValueError("motor_tau must be positive.")
+        self.rotor_yaw_sign = float(rotor_yaw_sign)
+        if self.rotor_yaw_sign not in {-1.0, 1.0}:
+            raise ValueError("rotor_yaw_sign must be -1.0 or 1.0.")
         self.base_dynamics_parameters = replace(
             quadrotor_sim_matlab_randomized.DEFAULT_PARAMETERS,
             tau=self.motor_tau,
@@ -305,7 +309,12 @@ class Bebop2Figure8GatesEnv(VecEnv):
         parameters: quadrotor_sim_matlab_randomized.DynamicsParameters,
         prev_deriv: np.ndarray | None = None,
     ) -> tuple[np.ndarray, np.ndarray | None]:
-        f = lambda x: quadrotor_sim_matlab_randomized.dynamics(x, action, parameters=parameters)
+        f = lambda x: quadrotor_sim_matlab_randomized.dynamics(
+            x,
+            action,
+            parameters=parameters,
+            rotor_yaw_sign=self.rotor_yaw_sign,
+        )
         method = self.integration_method.lower()
         dt = self.dt
         k1 = f(state)

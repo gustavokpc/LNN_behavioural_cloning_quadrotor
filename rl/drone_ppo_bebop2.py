@@ -48,6 +48,7 @@ from .legacy_ppo.drone_ppo_sb3 import (
 )
 from ..utils.animation import animate
 from ..utils.dynamics_models import quadrotor_sim_matlab, quadrotor_sim_matlab_randomized
+from ..utils.networks_LNN import CFC, ConvCfC
 from ..utils.quadrotor_sim import body_to_world_state
 
 
@@ -175,6 +176,79 @@ class RecurrentActorCriticCTRNNPolicy(_SimpleRecurrentPolicy):
         return _ContinuousTimeRNN(input_size, self.lstm_output_dim, self._ctrnn_time_constant)
 
 
+class _RLConvCfC(ConvCfC):
+    """Expose the project ConvCfC through the interface expected by Recurrent-PPO."""
+
+    def __init__(self, observation_size: int, hidden_size: int, **cfc_kwargs):
+        recurrent_core = CFC(
+            256,
+            hidden_size,
+            batch_first=True,
+            return_sequences=True,
+            **cfc_kwargs,
+        )
+        super().__init__(
+            no_input=1,
+            rnn_module=recurrent_core,
+            width="base",
+            base_channels=256,
+        )
+        self.input_size = int(observation_size)
+        self.state_size = int(recurrent_core.state_size)
+        self.output_size = int(recurrent_core.output_size)
+        self.hidden_size = self.state_size
+        self.num_layers = 1
+        self.cfc_timespan = None
+
+    def named_parameters(self, *args, **kwargs):
+        # The shared policy initializer applies orthogonal initialization to
+        # parameters named "weight". BatchNorm scales are one-dimensional and
+        # cannot be initialized that way, so expose a neutral name for them.
+        for name, parameter in super().named_parameters(*args, **kwargs):
+            if "weight" in name and parameter.ndim < 2:
+                name = name.replace("weight", "scale")
+            yield name, parameter
+
+
+class RecurrentActorCriticConvCfCPolicy(RecurrentActorCriticCfCPolicy):
+    """Recurrent-PPO actor using utils.networks_LNN.ConvCfC."""
+
+    def _make_recurrent_cell(self, input_size: int):
+        return _RLConvCfC(
+            observation_size=input_size,
+            hidden_size=self.lstm_output_dim,
+            **self._cfc_kwargs,
+        )
+
+    @staticmethod
+    def _process_sequence(features, lstm_states, episode_starts, rnn_module):
+        hidden, cell = lstm_states
+        hidden = hidden.squeeze(0)
+        if hidden.ndim == 1:
+            hidden = hidden.unsqueeze(0)
+
+        n_seq = hidden.shape[0]
+        sequence = features.reshape((n_seq, -1, rnn_module.input_size)).swapaxes(0, 1)
+        starts = episode_starts.reshape((n_seq, -1)).swapaxes(0, 1)
+        outputs = []
+        for step_features, step_start in zip(sequence, starts, strict=True):
+            hidden = (1.0 - step_start).unsqueeze(-1) * hidden
+            conv_input = step_features[:, None, None, :]
+            timespan = None
+            if rnn_module.cfc_timespan is not None:
+                timespan = th.full(
+                    (step_features.shape[0], 1, 1),
+                    float(rnn_module.cfc_timespan),
+                    dtype=step_features.dtype,
+                    device=step_features.device,
+                )
+            step_output, hidden = rnn_module(conv_input, hidden, timespans=timespan)
+            outputs.append(step_output[:, -1, :])
+
+        flattened = th.flatten(th.stack(outputs).swapaxes(0, 1), start_dim=0, end_dim=1)
+        return flattened, (hidden.unsqueeze(0), cell)
+
+
 def _state_to_absolute_position(state: np.ndarray, target: np.ndarray) -> np.ndarray:
     return target + body_to_world_state(state)[0:3]
 
@@ -208,7 +282,14 @@ def _commands01_to_rpm(actions01: np.ndarray) -> np.ndarray:
 
 def _synchronize_recurrent_timespan(model, args: argparse.Namespace) -> None:
     """Use the environment dt as the sole time source for loaded CfC/LTC policies."""
-    if _canonical_policy_type(args.policy_type) not in {"ct_rnn", "recurrent_ppo", "recurrent_ppo_ltc", "recurrent_ppo_ncp_cfc"}:
+    if _canonical_policy_type(args.policy_type) not in {"ct_rnn", "conv_cfc", "recurrent_ppo", "recurrent_ppo_ltc", "recurrent_ppo_ncp_cfc"}:
+        return
+
+    if (
+        _canonical_policy_type(args.policy_type)
+        in {"conv_cfc", "recurrent_ppo", "recurrent_ppo_ltc", "recurrent_ppo_ncp_cfc"}
+        and not args.cfc_use_dt
+    ):
         return
 
     timespan = float(args.dt)
@@ -772,17 +853,17 @@ def render(args: argparse.Namespace) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--num-envs", type=int, default=128)
+    parser.add_argument("--num-envs", type=int, default=64)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--cell-size", type=int, default=64)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
     parser.add_argument("--max-log-std", type=float, default=-1.5)
-    parser.add_argument("--rollout-fragment-length", type=int, default=1024)
+    parser.add_argument("--rollout-fragment-length", type=int, default=512)
     parser.add_argument("--batch-size", type=int, default=4096)
-    parser.add_argument("--gamma", type=float, default=0.999)
+    parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--lam", type=float, default=0.95)
     parser.add_argument("--clip-param", type=float, default=0.1)
-    parser.add_argument("--entropy-coeff", type=float, default=0.0)
+    parser.add_argument("--entropy-coeff", type=float, default=0.01)
     parser.add_argument("--vf-coeff", type=float, default=0.5)
     parser.add_argument("--total-timesteps", type=int, default=100_000_000)
     parser.add_argument("--checkpoint-freq", type=int, default=100_000)
@@ -790,10 +871,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device", type=str, default="auto")
     parser.add_argument("--n-epochs", type=int, default=5)
     parser.add_argument("--cfc-timespan", type=float, default=0.01)
+    parser.add_argument(
+        "--cfc-use-dt",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Pass the environment --dt to CfC/NCP-CfC cells. Use "
+            "--no-cfc-use-dt for the discrete-step CfC timing ablation."
+        ),
+    )
     parser.add_argument("--use-flatten-features", type=bool, default=True)
     parser.add_argument(
         "--policy-type",
-        choices=("mlp", "rnn", "ct_rnn", "cfc", "ppo", "recurrent_ppo", "recurrent_ppo_ltc", "recurrent_ppo_ncp_cfc", "bc_ppo", "residual_ppo"),
+        choices=("mlp", "rnn", "ct_rnn", "cfc", "conv_cfc", "ppo", "recurrent_ppo", "recurrent_ppo_ltc", "recurrent_ppo_ncp_cfc", "bc_ppo", "residual_ppo"),
         default="rnn",
     )
     parser.add_argument(
@@ -941,6 +1031,20 @@ def parse_args() -> argparse.Namespace:
 
 def resolve_bebop2_algorithm(args):
     canonical_policy = _canonical_policy_type(args.policy_type)
+    if canonical_policy == "conv_cfc":
+        policy_kwargs = dict(
+            features_extractor_class=FlattenExtractor,
+            share_features_extractor=True,
+            normalize_images=False,
+            shared_lstm=False,
+            enable_critic_lstm=False,
+            lstm_hidden_size=args.cell_size,
+            cfc_timespan=args.dt if args.cfc_use_dt else None,
+            cfc_kwargs=dict(mixed_memory=False),
+            ncp_kwargs=None,
+            max_log_std=args.max_log_std,
+        )
+        return RecurrentPPO, RecurrentActorCriticConvCfCPolicy, policy_kwargs
     if canonical_policy in {"rnn", "ct_rnn"}:
         policy_kwargs = dict(
             features_extractor_class=FlattenExtractor,
@@ -976,9 +1080,12 @@ def resolve_bebop2_algorithm(args):
         return resolve_algorithm(ppo_args)
     ppo_args = argparse.Namespace(**vars(args))
     ppo_args.policy_type = canonical_policy
-    # The underlying legacy policy still names this constructor argument
-    # cfc_timespan, but the public Bebop2 CLI has one time source: --dt.
-    ppo_args.cfc_timespan = ppo_args.dt
+    # The environment always needs --dt for dynamics integration. CfC can
+    # optionally omit elapsed time for the controlled timing ablation.
+    if canonical_policy in {"recurrent_ppo", "recurrent_ppo_ltc", "recurrent_ppo_ncp_cfc"}:
+        ppo_args.cfc_timespan = ppo_args.dt if args.cfc_use_dt else None
+    else:
+        ppo_args.cfc_timespan = ppo_args.dt
     return resolve_algorithm(ppo_args)
 
 

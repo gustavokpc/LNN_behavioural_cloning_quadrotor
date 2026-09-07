@@ -30,6 +30,7 @@ def add_environment_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--max-steps", type=int, default=argparse.SUPPRESS)
     parser.add_argument("--motor-tau", type=float, default=argparse.SUPPRESS)
     parser.add_argument("--tau", type=float, default=argparse.SUPPRESS)
+    parser.add_argument("--rotor-yaw-sign", type=float, choices=(-1.0, 1.0), default=argparse.SUPPRESS)
     parser.add_argument("--no-vel", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
     parser.add_argument("--no-ang-vel", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
     parser.add_argument("--low-obs", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
@@ -43,7 +44,7 @@ def add_environment_arguments(parser: argparse.ArgumentParser) -> None:
 
 def environment_overrides(namespace: argparse.Namespace) -> dict:
     names = (
-        "track", "dt", "max_steps", "motor_tau", "tau", "no_vel", "no_ang_vel", "low_obs",
+        "track", "dt", "max_steps", "motor_tau", "tau", "rotor_yaw_sign", "no_vel", "no_ang_vel", "low_obs",
         "param_input_noise", "obs_rate_noise_std", "randomize_dynamics", "randomization_factor",
         "randomize_aerodynamic_coefficients", "randomize_external_moments",
     )
