@@ -7,3 +7,4 @@ rl/runs/**
 C_codes/bebop1
 checkpoints
 configs
+rl/results

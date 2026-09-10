@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import argparse
 import math
 import unittest
 
@@ -10,6 +11,7 @@ from rl.analysis.metrics import action_metrics, aggregate_episodes, degradation
 from rl.analysis.robustness import robustness_degradation
 from rl.analysis.stability import central_difference_jacobian
 from rl.analysis.statistics import aggregate_training_seeds, mean_confidence_interval, wilson_interval
+from rl.scripts._common import add_environment_arguments, environment_overrides
 
 
 class ActionMetricTests(unittest.TestCase):
@@ -18,6 +20,40 @@ class ActionMetricTests(unittest.TestCase):
         self.assertAlmostEqual(result["action_rms"], math.sqrt(10.0 / 3.0))
         self.assertAlmostEqual(result["action_delta_rms"], math.sqrt(2.5))
         self.assertAlmostEqual(result["action_jerk_rms"], 1.0)
+
+
+class EnvironmentArgumentTests(unittest.TestCase):
+    def setUp(self):
+        self.parser = argparse.ArgumentParser()
+        add_environment_arguments(self.parser)
+
+    def test_partial_observation_flags_enable_ablations(self):
+        no_velocity = environment_overrides(self.parser.parse_args(["--no-vel"]))
+        no_angular_rate = environment_overrides(self.parser.parse_args(["--no-ang-vel"]))
+        low_observation = environment_overrides(self.parser.parse_args(["--low-obs"]))
+        self.assertIs(no_velocity["no_vel"], True)
+        self.assertIs(no_angular_rate["no_ang_vel"], True)
+        self.assertIs(low_observation["low_obs"], True)
+
+    def test_partial_observation_flags_are_omitted_by_default(self):
+        overrides = environment_overrides(self.parser.parse_args([]))
+        self.assertNotIn("no_vel", overrides)
+        self.assertNotIn("no_ang_vel", overrides)
+        self.assertNotIn("low_obs", overrides)
+
+    def test_full_observation_flags_disable_ablations(self):
+        overrides = environment_overrides(
+            self.parser.parse_args(["--with-vel", "--with-ang-vel", "--full-obs"])
+        )
+        self.assertIs(overrides["no_vel"], False)
+        self.assertIs(overrides["no_ang_vel"], False)
+        self.assertIs(overrides["low_obs"], False)
+
+    def test_last_observation_flag_wins_for_shared_cli_arrays(self):
+        overrides = environment_overrides(
+            self.parser.parse_args(["--with-vel", "--no-vel"])
+        )
+        self.assertIs(overrides["no_vel"], True)
 
 
 class StatisticsTests(unittest.TestCase):

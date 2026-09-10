@@ -175,6 +175,7 @@ class Bebop2Figure8GatesEnv(VecEnv):
             action_low = 0.0
             action_high = self.motor_limit
         action_space = spaces.Box(low=action_low, high=action_high, shape=(4,), dtype=np.float32)
+        self.action_midpoint = 0.5 * (action_space.low + action_space.high)
 
         self.state_len = 16 + 4 * self.gates_ahead + 4 * self.num_action_history + 9 * int(self.param_input)
         self.low_obs_state_len = self.state_len - 6
@@ -201,9 +202,12 @@ class Bebop2Figure8GatesEnv(VecEnv):
         self.states = np.zeros((num_envs, self.obs_len), dtype=np.float32)
         hist_len = max(40, (self.num_state_history + 1) * max(1, self.history_step_size) + 1)
         self.state_hist = np.zeros((num_envs, hist_len, self.state_len), dtype=np.float32)
-        self.action_hist = np.zeros((num_envs, hist_len, 4), dtype=np.float32)
-        self.actions = np.zeros((num_envs, 4), dtype=np.float32)
-        self.prev_actions = np.zeros((num_envs, 4), dtype=np.float32)
+        self.action_hist = np.broadcast_to(
+            self.action_midpoint,
+            (num_envs, hist_len, 4),
+        ).copy()
+        self.actions = np.broadcast_to(self.action_midpoint, (num_envs, 4)).copy()
+        self.prev_actions = self.actions.copy()
         self.prev_derivs: list[np.ndarray | None] = [None] * num_envs
         self.target_gates = np.zeros(num_envs, dtype=np.int64)
         self.step_counts = np.zeros(num_envs, dtype=np.int64)
@@ -623,7 +627,9 @@ class Bebop2Figure8GatesEnv(VecEnv):
         self.step_counts[dones] = 0
         self.prev_derivs = [None if done else deriv for done, deriv in zip(dones, self.prev_derivs, strict=True)]
         self.state_hist[dones] = 0.0
-        self.action_hist[dones] = 0.0
+        self.actions[dones] = self.action_midpoint
+        self.prev_actions[dones] = self.action_midpoint
+        self.action_hist[dones] = self.action_midpoint
         self.angular_rate_noise[dones] = 0.0
         self.angular_rate_noise_timer[dones] = 0.0
         self._reset_episode_metrics(dones)

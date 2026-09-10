@@ -31,9 +31,27 @@ def add_environment_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--motor-tau", type=float, default=argparse.SUPPRESS)
     parser.add_argument("--tau", type=float, default=argparse.SUPPRESS)
     parser.add_argument("--rotor-yaw-sign", type=float, choices=(-1.0, 1.0), default=argparse.SUPPRESS)
-    parser.add_argument("--no-vel", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
-    parser.add_argument("--no-ang-vel", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
-    parser.add_argument("--low-obs", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
+    parser.add_argument(
+        "--no-vel", dest="no_vel", action="store_true", default=argparse.SUPPRESS
+    )
+    parser.add_argument(
+        "--with-vel", "--no-no-vel", dest="no_vel", action="store_false",
+        default=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--no-ang-vel", dest="no_ang_vel", action="store_true", default=argparse.SUPPRESS
+    )
+    parser.add_argument(
+        "--with-ang-vel", "--no-no-ang-vel", dest="no_ang_vel", action="store_false",
+        default=argparse.SUPPRESS,
+    )
+    parser.add_argument(
+        "--low-obs", dest="low_obs", action="store_true", default=argparse.SUPPRESS
+    )
+    parser.add_argument(
+        "--full-obs", "--no-low-obs", dest="low_obs", action="store_false",
+        default=argparse.SUPPRESS,
+    )
     parser.add_argument("--param-input-noise", type=float, default=argparse.SUPPRESS)
     parser.add_argument("--obs-rate-noise-std", type=float, nargs=3, default=argparse.SUPPRESS)
     parser.add_argument("--randomize-dynamics", action=argparse.BooleanOptionalAction, default=argparse.SUPPRESS)
